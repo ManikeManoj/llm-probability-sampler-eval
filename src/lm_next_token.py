@@ -1,6 +1,8 @@
+from xml.parsers.expat import model
+
 import torch
 import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from model_loader import load_lm_backend, get_model_input_device
 from prompt_template import build_prompt, ALL_PROMPT_TYPES
 
 import numpy as np
@@ -14,40 +16,20 @@ def load_lm(
     model_name: str = "Qwen/Qwen3-4B",
     load_in_4bit: bool = True,
 ):
-
-
     cache_key = (model_name, load_in_4bit)
 
     if cache_key in _MODEL_CACHE:
         return _MODEL_CACHE[cache_key]
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    loaded = load_lm_backend(
+        model_name=model_name,
+        load_in_4bit=load_in_4bit,
+    )
 
-    if load_in_4bit:
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16,
-            bnb_4bit_use_double_quant=True,
-        )
+    print(f"[loader] Loaded {model_name} using backend={loaded.backend}")
 
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            quantization_config=bnb_config,
-            device_map="auto",
-        )
-    else:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            device_map="auto",
-            torch_dtype=torch.float16,
-        )
-
-    model.eval()
-
-    _MODEL_CACHE[cache_key] = (tokenizer, model)
-    return tokenizer, model
-
+    _MODEL_CACHE[cache_key] = (loaded.tokenizer, loaded.model)
+    return loaded.tokenizer, loaded.model
 
 
 def token_ids_for_strings(strings,tokenizer):
@@ -93,8 +75,11 @@ def next_token_distribution(
 
     full_text = prompt + "\n" + prefix
 
-    inputs = tokenizer(full_text, return_tensors="pt").to(model.device)
+    inputs = tokenizer(full_text, return_tensors="pt")
 
+    device = get_model_input_device(model)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+    
     with torch.no_grad():
         outputs = model(**inputs)
 
