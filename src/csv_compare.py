@@ -302,7 +302,7 @@ def compare_for_prefix(
         decimals=decimals,
         allow_negative=allow_negative,
         model_name=model_name,
-        lm_scoring_method=lm_scoring_method,
+        scoring_method=lm_scoring_method,
 )
 
 
