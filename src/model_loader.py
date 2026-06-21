@@ -11,7 +11,10 @@ try:
     from transformers import AutoModelForImageTextToText
 except ImportError:
     AutoModelForImageTextToText = None
-
+try:
+    from transformers import AutoModelForMultimodalLM
+except ImportError:
+    AutoModelForMultimodalLM = None
 
 @dataclass
 class LoadedLM:
@@ -109,12 +112,7 @@ def load_lm_backend(
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    if AutoModelForImageTextToText is None:
-        raise RuntimeError(
-            "AutoModelForImageTextToText is not available. "
-            "Upgrade transformers or use a text-generation Gemma model."
-        )
-
+    # Prepare processor for multimodal/image-text fallback models.
     if processor is None:
         processor = AutoProcessor.from_pretrained(
             model_name,
@@ -124,15 +122,58 @@ def load_lm_backend(
         if hasattr(processor, "tokenizer"):
             tokenizer = processor.tokenizer
 
-    model = AutoModelForImageTextToText.from_pretrained(
-        model_name,
-        **common_kwargs,
-    )
-    model.eval()
+    # Fallback 1: any-to-any / multimodal LM.
+    # This is the important fallback for models such as Gemma 4 12B-it.
+    if AutoModelForMultimodalLM is not None:
+        try:
+            model = AutoModelForMultimodalLM.from_pretrained(
+                model_name,
+                **common_kwargs,
+            )
+            model.eval()
 
-    return LoadedLM(
-        tokenizer=tokenizer,
-        model=model,
-        processor=processor,
-        backend="image_text_to_text",
-    )
+            return LoadedLM(
+                tokenizer=tokenizer,
+                model=model,
+                processor=processor,
+                backend="multimodal_lm",
+            )
+
+        except Exception as multimodal_error:
+            print(f"[loader] AutoModelForMultimodalLM failed for {model_name}")
+            print(f"[loader] multimodal error: {type(multimodal_error).__name__}: {multimodal_error}")
+
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    # Fallback 2: image-text-to-text models.
+    if AutoModelForImageTextToText is not None:
+        try:
+            model = AutoModelForImageTextToText.from_pretrained(
+                model_name,
+                **common_kwargs,
+            )
+            model.eval()
+
+            return LoadedLM(
+                tokenizer=tokenizer,
+                model=model,
+                processor=processor,
+                backend="image_text_to_text",
+            )
+
+        except Exception as image_text_error:
+            print(f"[loader] AutoModelForImageTextToText failed for {model_name}")
+            print(f"[loader] image-text error: {type(image_text_error).__name__}: {image_text_error}")
+
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    raise RuntimeError(
+        f"Could not load {model_name} using causal_lm, multimodal_lm, or image_text_to_text backends."
+    )    
+
+
+    
