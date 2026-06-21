@@ -164,7 +164,7 @@ def _candidate_sequence_logprob(tokenizer, model, context: str, candidate: str) 
 
     return total_logprob
 
-def next_token_distribution(
+def next_token_distribution_single_token(
     prompt: str,
     prefix: str,
     decimals: int,
@@ -173,7 +173,10 @@ def next_token_distribution(
     load_in_4bit: bool = True,
 ):
     """
-    Restricted next-token distribution over logically valid numeric continuations.
+    Original method.
+
+    Use this for tokenizer-clean models where each valid visible continuation
+    is exactly one tokenizer token, e.g. Qwen/Gemma/VibeThinker.
     """
     allowed = valid_next_tokens(
         prefix=prefix,
@@ -184,7 +187,11 @@ def next_token_distribution(
     if len(allowed) == 0:
         return {}, {}
 
-    tokenizer, model = load_lm(model_name = model_name, load_in_4bit = load_in_4bit)
+    tokenizer, model = load_lm(
+        model_name=model_name,
+        load_in_4bit=load_in_4bit,
+    )
+
     allowed_token_ids = token_ids_for_strings(allowed, tokenizer)
 
     full_text = prompt + "\n" + prefix
@@ -220,6 +227,118 @@ def next_token_distribution(
 
     return probs_dict, logprobs_dict
 
+
+def next_token_distribution_sequence(
+    prompt: str,
+    prefix: str,
+    decimals: int,
+    allow_negative: bool = True,
+    model_name: str = "Qwen/Qwen3-4B",
+    load_in_4bit: bool = True,
+):
+    """
+    Mistral bridge method.
+
+    Scores each valid visible continuation string, even if that visible
+    continuation is represented by more than one tokenizer token.
+
+    Example:
+        visible "-" may be token piece ["▁-"]
+        visible "0" may be token pieces ["▁", "0"]
+    """
+    allowed = valid_next_tokens(
+        prefix=prefix,
+        decimals=decimals,
+        allow_negative=allow_negative,
+    )
+
+    if len(allowed) == 0:
+        return {}, {}
+
+    tokenizer, model = load_lm(
+        model_name=model_name,
+        load_in_4bit=load_in_4bit,
+    )
+
+    full_text = prompt + "\n" + prefix
+
+    candidate_logprobs = {}
+
+    for tok in allowed:
+        candidate_logprobs[tok] = _candidate_sequence_logprob(
+            tokenizer=tokenizer,
+            model=model,
+            context=full_text,
+            candidate=tok,
+        )
+
+    return _normalize_logprobs(candidate_logprobs)
+
+
+def next_token_distribution(
+    prompt: str,
+    prefix: str,
+    decimals: int,
+    allow_negative: bool = True,
+    model_name: str = "Qwen/Qwen3-4B",
+    load_in_4bit: bool = True,
+    scoring_method: str = "single_token",
+):
+    """
+    Public dispatcher.
+
+    scoring_method:
+        single_token = original exact restricted next-token method
+        sequence     = visible-continuation sequence scoring, useful for Mistral
+        auto         = try single_token first, then fallback to sequence
+    """
+    if scoring_method == "single_token":
+        return next_token_distribution_single_token(
+            prompt=prompt,
+            prefix=prefix,
+            decimals=decimals,
+            allow_negative=allow_negative,
+            model_name=model_name,
+            load_in_4bit=load_in_4bit,
+        )
+
+    if scoring_method == "sequence":
+        return next_token_distribution_sequence(
+            prompt=prompt,
+            prefix=prefix,
+            decimals=decimals,
+            allow_negative=allow_negative,
+            model_name=model_name,
+            load_in_4bit=load_in_4bit,
+        )
+
+    if scoring_method == "auto":
+        try:
+            return next_token_distribution_single_token(
+                prompt=prompt,
+                prefix=prefix,
+                decimals=decimals,
+                allow_negative=allow_negative,
+                model_name=model_name,
+                load_in_4bit=load_in_4bit,
+            )
+        except ValueError as e:
+            print("[scoring] single_token failed, falling back to sequence.")
+            print(f"[scoring] reason: {e}")
+
+            return next_token_distribution_sequence(
+                prompt=prompt,
+                prefix=prefix,
+                decimals=decimals,
+                allow_negative=allow_negative,
+                model_name=model_name,
+                load_in_4bit=load_in_4bit,
+            )
+
+    raise ValueError(
+        f"Unknown scoring_method={scoring_method!r}. "
+        "Use 'single_token', 'sequence', or 'auto'."
+    )
 
 def pretty_print_distribution(title: str, probs_dict: dict[str, float]):
     print(f"\n{title}")
