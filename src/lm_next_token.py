@@ -1,5 +1,3 @@
-from xml.parsers.expat import model
-
 import torch
 import torch.nn.functional as F
 from model_loader import load_lm_backend, get_model_input_device
@@ -49,6 +47,122 @@ def token_ids_for_strings(strings,tokenizer):
 
     return mapping
 
+def _normalize_logprobs(logprobs_dict: dict[str, float]):
+    """
+    Normalize unnormalized candidate log-probabilities over the restricted
+    allowed candidate set.
+    """
+    tokens = list(logprobs_dict.keys())
+
+    logps = torch.tensor(
+        [logprobs_dict[tok] for tok in tokens],
+        dtype=torch.float32,
+    )
+
+    norm_logps = logps - torch.logsumexp(logps, dim=0)
+    probs = torch.exp(norm_logps)
+
+    probs_dict = {
+        tok: probs[i].item()
+        for i, tok in enumerate(tokens)
+    }
+
+    norm_logprobs_dict = {
+        tok: norm_logps[i].item()
+        for i, tok in enumerate(tokens)
+    }
+
+    return probs_dict, norm_logprobs_dict
+
+
+def _candidate_tail_ids_and_inputs(tokenizer, context: str, candidate: str):
+    """
+    Find the tokenizer-token continuation needed to append visible `candidate`
+    after `context`.
+
+    This handles Mistral-style boundary markers, e.g. visible "0" may involve
+    tokenizer pieces like ["▁", "0"], while visible "-" may be ["▁-"].
+
+    It still requires prefix-stable tokenization:
+        tokenizer(context + candidate) begins with tokenizer(context)
+
+    If this fails, it is probably a Llama/GLM-style token merge issue,
+    not the Mistral boundary-marker issue.
+    """
+    context_inputs = tokenizer(
+        context,
+        return_tensors="pt",
+        add_special_tokens=True,
+    )
+
+    full_inputs = tokenizer(
+        context + candidate,
+        return_tensors="pt",
+        add_special_tokens=True,
+    )
+
+    context_ids = context_inputs["input_ids"][0].tolist()
+    full_ids = full_inputs["input_ids"][0].tolist()
+
+    if full_ids[: len(context_ids)] != context_ids:
+        context_pieces = [tokenizer.decode([i]) for i in context_ids]
+        full_pieces = [tokenizer.decode([i]) for i in full_ids]
+
+        raise ValueError(
+            "Candidate causes prefix retokenization.\n"
+            f"context={context!r}\n"
+            f"candidate={candidate!r}\n"
+            f"context_ids={context_ids}\n"
+            f"context_pieces={context_pieces}\n"
+            f"full_ids={full_ids}\n"
+            f"full_pieces={full_pieces}\n"
+            "This is not just a Mistral boundary-marker issue. "
+            "This needs next-visible-character aggregation later."
+        )
+
+    tail_ids = full_ids[len(context_ids):]
+
+    if len(tail_ids) == 0:
+        raise ValueError(
+            f"Candidate {candidate!r} produced empty continuation."
+        )
+
+    return context_ids, tail_ids, full_inputs
+
+
+def _candidate_sequence_logprob(tokenizer, model, context: str, candidate: str) -> float:
+    """
+    Compute log P(visible candidate string | context).
+
+    For one-token candidates, this matches the normal next-token score.
+    For Mistral-style candidates, this can score multi-token continuations
+    such as boundary marker + digit.
+    """
+    context_ids, tail_ids, full_inputs = _candidate_tail_ids_and_inputs(
+        tokenizer=tokenizer,
+        context=context,
+        candidate=candidate,
+    )
+
+    device = get_model_input_device(model)
+    full_inputs = {k: v.to(device) for k, v in full_inputs.items()}
+
+    with torch.no_grad():
+        outputs = model(**full_inputs)
+
+    logits = outputs.logits[0]
+
+    total_logprob = 0.0
+    start = len(context_ids)
+
+    for i, token_id in enumerate(tail_ids):
+        absolute_pos = start + i
+        previous_pos = absolute_pos - 1
+
+        token_logprobs = F.log_softmax(logits[previous_pos, :], dim=-1)
+        total_logprob += token_logprobs[token_id].item()
+
+    return total_logprob
 
 def next_token_distribution(
     prompt: str,
@@ -79,7 +193,7 @@ def next_token_distribution(
 
     device = get_model_input_device(model)
     inputs = {k: v.to(device) for k, v in inputs.items()}
-    
+
     with torch.no_grad():
         outputs = model(**inputs)
 

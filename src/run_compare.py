@@ -10,6 +10,7 @@ from distributions import DistributionSpec, default_support_for_distribution, fo
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-name", type=str, default="Qwen/Qwen3-4B", help="HuggingFace model name to use for next-token predictions.")
+    parser.add_argument("--lm-scoring-method", type=str, default="single_token", choices=["sequence", "single_token","auto"], help="Method for scoring LM logprobs: 'full_sequence' means the logprob of the entire continuation given the prompt, while 'single_token' means the logprob of just the next token after the prompt. 'single_token' is more comparable to the analytic distribution, but 'full_sequence' may be more indicative of actual model behavior for longer continuations.")
     #distribution parameters
     parser.add_argument("--distribution", type=str, default="normal", choices=["normal", "uniform", "exponential", "beta", "laplace", "lognormal"], help="Distribution family to use for sampling(normal, uniform, exponential, beta, laplace).")
     parser.add_argument("--params", type=str, default=None, help="JSON string of distribution parameters. Example: '{\"mean\": 0.0, \"std\": 1.0}'")
@@ -133,9 +134,10 @@ if __name__ == "__main__":
         prefix_summary_csv=f"outputs/prefix_summary_{run_id}.csv",
         prompt_type=args.prompt_type,
         support_mode=support_mode,
-        allow_negative=args.allow_negative,
+        allow_negative=allow_negative,
         icl_n_examples=args.icl_n_examples,
         icl_seed=args.icl_seed,
+        lm_scoring_method=args.lm_scoring_method,
         seed=args.seed,
         run_id=run_id,
         distribution=args.distribution,
