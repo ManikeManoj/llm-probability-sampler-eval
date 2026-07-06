@@ -33,7 +33,8 @@ class RunConfig:
     distribution: str = "normal"
     params: dict | None = None
     model_name: str = "Qwen/Qwen3-4B"
-    lm_scoring_method: str = "single_token"  
+    lm_scoring_method: str = "single_token" 
+    load_in_4bit: bool = True 
 
 def align_three_distributions(
     mc_dist: dict[str, float],
@@ -263,6 +264,8 @@ def compare_for_prefix(
     params: dict | None = None,
     model_name: str = "Qwen/Qwen3-4B",
     lm_scoring_method: str = "single_token",
+    load_in_4bit: bool = True,
+
  ):
     """
     Compare:
@@ -302,6 +305,7 @@ def compare_for_prefix(
         decimals=decimals,
         allow_negative=allow_negative,
         model_name=model_name,
+        load_in_4bit=load_in_4bit,
         scoring_method=lm_scoring_method,
 )
 
@@ -413,6 +417,7 @@ def compare_for_prefix(
         "params": params,
         "model_name": model_name,
         "lm_scoring_method": lm_scoring_method,
+        "load_in_4bit": load_in_4bit,
         "n_samples": n_samples,
         "decimals": decimals,
         "icl_n_examples": icl_n_examples,
@@ -456,6 +461,7 @@ def export_token_level_csv(results, filepath):
                 "run_id",
                 "model_name",
                 "lm_scoring_method",
+                "load_in_4bit",
                 "distribution",
                 "distribution_params",
                 "prompt_type",
@@ -505,6 +511,7 @@ def export_token_level_csv(results, filepath):
                         result["run_id"],
                         result["model_name"],
                         result["lm_scoring_method"],
+                        result["load_in_4bit"],
                         result["distribution"],
                         json.dumps(result["params"], sort_keys=True),
                         result["prompt_type"],
@@ -548,6 +555,7 @@ def export_prefix_summary_csv(results, filepath):
                 "run_id",
                 "model_name",
                 "lm_scoring_method",
+                "load_in_4bit",
                 "distribution",
                 "distribution_params",
                 "prompt_type",
@@ -592,6 +600,7 @@ def export_prefix_summary_csv(results, filepath):
                     result["run_id"],
                     result["model_name"],
                     result["lm_scoring_method"],
+                    result["load_in_4bit"],
                     result["distribution"],
                     json.dumps(result["params"], sort_keys=True),
                     result["prompt_type"],
@@ -679,6 +688,7 @@ def run_experiment(config: RunConfig):
             params=config.params,
             model_name=config.model_name,
             lm_scoring_method=config.lm_scoring_method,
+            load_in_4bit=config.load_in_4bit,
             mc_reliable_threshold=config.mc_reliable_threshold,
             run_id=config.run_id,
             prompt_type=config.prompt_type,

@@ -11,6 +11,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-name", type=str, default="Qwen/Qwen3-4B", help="HuggingFace model name to use for next-token predictions.")
     parser.add_argument("--lm-scoring-method", type=str, default="single_token", choices=["sequence", "single_token","auto"], help="Method for scoring LM logprobs: 'full_sequence' means the logprob of the entire continuation given the prompt, while 'single_token' means the logprob of just the next token after the prompt. 'single_token' is more comparable to the analytic distribution, but 'full_sequence' may be more indicative of actual model behavior for longer continuations.")
+    parser.add_argument("--no-4bit", action="store_true", help="If set, do not load the model in 4-bit precision. This may be necessary for some models that do not support 4-bit loading, but will increase memory usage.")
     #distribution parameters
     parser.add_argument("--distribution", type=str, default="normal", choices=["normal", "uniform", "exponential", "beta", "laplace", "lognormal"], help="Distribution family to use for sampling(normal, uniform, exponential, beta, laplace).")
     parser.add_argument("--params", type=str, default=None, help="JSON string of distribution parameters. Example: '{\"mean\": 0.0, \"std\": 1.0}'")
@@ -122,6 +123,7 @@ if __name__ == "__main__":
 
     config = RunConfig(
         model_name=args.model_name,
+        load_in_4bit=not args.no_4bit,
         mean=args.mean,
         std=args.std,
         lower=lower,
@@ -146,6 +148,15 @@ if __name__ == "__main__":
 
 
     results = run_experiment(config)
+
+    print("\nRun metadata:")
+    print(f"  run_id            = {run_id}")
+    print(f"  model_name        = {args.model_name}")
+    print(f"  lm_scoring_method = {args.lm_scoring_method}")
+    print(f"  load_in_4bit      = {not args.no_4bit}")
+    print(f"  distribution      = {args.distribution}")
+    print(f"  params            = {params}")
+    print(f"  prompt_type       = {args.prompt_type}")
 
     print("\nFinished run:")
     for r in results:
