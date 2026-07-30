@@ -159,7 +159,7 @@ def _candidate_sequence_logprob(tokenizer, model, context: str, candidate: str) 
         absolute_pos = start + i
         previous_pos = absolute_pos - 1
 
-        token_logprobs = F.log_softmax(logits[previous_pos, :], dim=-1)
+        token_logprobs = F.log_softmax(logits[previous_pos, :].float(), dim=-1)
         total_logprob += token_logprobs[token_id].item()
 
     return total_logprob
@@ -204,7 +204,7 @@ def next_token_distribution_single_token(
     with torch.no_grad():
         outputs = model(**inputs)
 
-    next_logits = outputs.logits[0, -1, :]
+    next_logits = outputs.logits[0, -1, :].float()
 
     restricted_ids = torch.tensor(
         [allowed_token_ids[tok] for tok in allowed],

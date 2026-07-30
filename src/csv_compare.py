@@ -1,3 +1,4 @@
+from logging import config
 import math
 import csv
 import os
@@ -277,6 +278,7 @@ def compare_for_prefix(
     - Monte Carlo support count for the prefix
     - reliability flag for Monte Carlo
     """
+    precision = "4bit" if load_in_4bit else "bf16"
     token_set = valid_next_tokens(
     prefix=prefix,
     decimals=decimals,
@@ -418,6 +420,7 @@ def compare_for_prefix(
         "model_name": model_name,
         "lm_scoring_method": lm_scoring_method,
         "load_in_4bit": load_in_4bit,
+        "precision": precision,
         "n_samples": n_samples,
         "decimals": decimals,
         "icl_n_examples": icl_n_examples,
@@ -462,6 +465,7 @@ def export_token_level_csv(results, filepath):
                 "model_name",
                 "lm_scoring_method",
                 "load_in_4bit",
+                "precision",
                 "distribution",
                 "distribution_params",
                 "prompt_type",
@@ -512,6 +516,7 @@ def export_token_level_csv(results, filepath):
                         result["model_name"],
                         result["lm_scoring_method"],
                         result["load_in_4bit"],
+                        result["precision"],
                         result["distribution"],
                         json.dumps(result["params"], sort_keys=True),
                         result["prompt_type"],
@@ -556,6 +561,7 @@ def export_prefix_summary_csv(results, filepath):
                 "model_name",
                 "lm_scoring_method",
                 "load_in_4bit",
+                "precision",
                 "distribution",
                 "distribution_params",
                 "prompt_type",
@@ -601,6 +607,7 @@ def export_prefix_summary_csv(results, filepath):
                     result["model_name"],
                     result["lm_scoring_method"],
                     result["load_in_4bit"],
+                    result["precision"],
                     result["distribution"],
                     json.dumps(result["params"], sort_keys=True),
                     result["prompt_type"],
@@ -640,6 +647,14 @@ def export_prefix_summary_csv(results, filepath):
             ])
 
 def run_experiment(config: RunConfig):
+
+    precision = "4bit" if config.load_in_4bit else "bf16"
+
+    print(
+    f"[experiment] model={config.model_name} "
+    f"precision={precision} "
+    f"scoring_method={config.lm_scoring_method}"
+)
 
     formatted_samples, prefix_to_next_counts, prefix_to_next_probs = build_truth_model(
     distribution=config.distribution,

@@ -32,6 +32,39 @@ def get_model_input_device(model) -> torch.device:
 
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def _log_loaded_model(
+    model_name: str,
+    model: Any,
+    backend: str,
+    load_in_4bit: bool,
+) -> None:
+    requested_precision = (
+        "4bit_nf4_bf16_compute"
+        if load_in_4bit
+        else "bf16"
+    )
+
+    print(f"[loader] model={model_name}")
+    print(f"[loader] backend={backend}")
+    print(f"[loader] requested_precision={requested_precision}")
+    print(
+        "[loader] is_loaded_in_4bit="
+        f"{getattr(model, 'is_loaded_in_4bit', False)}"
+    )
+
+    try:
+        parameter = next(
+            parameter
+            for parameter in model.parameters()
+            if parameter.device.type != "meta"
+        )
+        print(f"[loader] first_parameter_dtype={parameter.dtype}")
+        print(f"[loader] first_parameter_device={parameter.device}")
+    except StopIteration:
+        print("[loader] could not inspect model parameter dtype")
+
+    if hasattr(model, "hf_device_map"):
+        print(f"[loader] device_map={model.hf_device_map}")
 
 def _make_quantization_config(load_in_4bit: bool):
     if not load_in_4bit:
@@ -40,7 +73,7 @@ def _make_quantization_config(load_in_4bit: bool):
     return BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.float16,
+        bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_use_double_quant=True,
     )
 
@@ -82,12 +115,13 @@ def load_lm_backend(
     common_kwargs = {
         "device_map": "auto",
         "trust_remote_code": True,
+        "low_cpu_mem_usage": True,
     }
 
     if quant_config is not None:
         common_kwargs["quantization_config"] = quant_config
     else:
-        common_kwargs["torch_dtype"] = torch.float16
+        common_kwargs["torch_dtype"] = torch.bfloat16
 
     # First try the normal text-generation path.
     try:
@@ -96,6 +130,8 @@ def load_lm_backend(
             **common_kwargs,
         )
         model.eval()
+
+        _log_loaded_model(model_name, model, "causal_lm", load_in_4bit)
 
         return LoadedLM(
             tokenizer=tokenizer,
@@ -132,6 +168,8 @@ def load_lm_backend(
             )
             model.eval()
 
+            _log_loaded_model(model_name, model, "multimodal_lm", load_in_4bit)
+
             return LoadedLM(
                 tokenizer=tokenizer,
                 model=model,
@@ -155,6 +193,8 @@ def load_lm_backend(
                 **common_kwargs,
             )
             model.eval()
+
+            _log_loaded_model(model_name, model, "image_text_to_text", load_in_4bit)
 
             return LoadedLM(
                 tokenizer=tokenizer,
