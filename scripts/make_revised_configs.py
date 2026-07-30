@@ -220,7 +220,7 @@ def main():
     dist_filter = parse_csv_set(args.distributions, allowed_dists, "distribution")
     prompts = [p.strip() for p in args.prompts.split(",") if p.strip()]
 
-    quantization = "4bit" if not args.no_4bit else "full"
+    quantization = "4bit" if not args.no_4bit else "bf16"
     tag = args.tag or f"rq_core_{quantization}"
     generated_at = datetime.now().strftime("%Y%m%d_%H%M%S")
 
