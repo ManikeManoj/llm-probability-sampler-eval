@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import random
+from scipy.stats import beta as beta_dist
+
 from distributions import DistributionSpec, sample_distribution
 
 ALL_PROMPT_TYPES = [
@@ -39,19 +42,39 @@ def _icl_examples(
     upper=None,
     seed: int = 0,
 ) -> list[str]:
-    """
-    Generate in-context examples from the same distribution.
-    """
+   
+
+    if n_examples < 1:
+        raise ValueError("n_examples must be at least 1")
+
+    pool_size = max(10_000, n_examples * 2_000)
 
     samples = sample_distribution(
         spec=spec,
-        n_samples=n_examples,
+        n_samples=pool_size,
         lower=lower,
         upper=upper,
         seed=seed,
     )
 
-    return [f"{x:.{decimals}f}" for x in samples]
+    ordered_samples = sorted(float(x) for x in samples)
+
+    probabilities = [
+        (i + 1) / (n_examples + 1)
+        for i in range(n_examples)
+    ]
+
+    examples = [
+        ordered_samples[
+            round(probability * (len(ordered_samples) - 1))
+        ]
+        for probability in probabilities
+    ]
+
+    rng = random.Random(seed)
+    rng.shuffle(examples)
+
+    return [f"{x:.{decimals}f}" for x in examples]
 
 def build_prompt(
     distribution: str = "normal",
@@ -186,6 +209,10 @@ def build_normal_prompt(
     mean = spec.params["mean"]
     std = spec.params["std"]
 
+    q25 = mean - 0.6744897501960817 * std
+    q50 = mean
+    q75 = mean + 0.6744897501960817 * std
+
     support = _support_text(support_mode, lower, upper)
     sc = f" {support}" if support else ""
 
@@ -214,76 +241,69 @@ def build_normal_prompt(
 
     if prompt_type == "explanatory_1":
         return (
-            f"You are drawing a sample from a Normal (Gaussian) distribution "
+            f"You are drawing one independent sample from a Normal (Gaussian) distribution "
             f"with mean {mean} and standard deviation {std}{sc}. "
+            f"The natural support of this distribution is all real numbers, "
+            f"so the sample may be negative, zero, or positive. "
             f"Output the sample as a number with exactly {decimals} decimal places. "
             f"Output only the number."
         )
 
     if prompt_type == "explanatory_2":
-        lo1, hi1 = round(mean - std, 4), round(mean + std, 4)
-        lo2, hi2 = round(mean - 2 * std, 4), round(mean + 2 * std, 4)
-        lo3, hi3 = round(mean - 3 * std, 4), round(mean + 3 * std, 4)
-
         return (
-            f"You are drawing a sample from a Normal (Gaussian) distribution "
-            f"with mean {mean} and standard deviation {std}{sc}. "
-            f"This distribution has the following coverage properties: "
-            f"about 68% of values fall between {lo1} and {hi1}, "
-            f"about 95% fall between {lo2} and {hi2}, "
-            f"and about 99.7% fall between {lo3} and {hi3}. "
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from a Normal (Gaussian) distribution "
+        f"with mean {mean} and standard deviation {std}{sc}. "
+        f"The natural support of this distribution is all real numbers, "
+        f"so the sample may be negative, zero, or positive. "
+        f"The distribution is bell-shaped and symmetric around its mean of {mean}. "
+        f"Values closer to the mean have higher probability density, "
+        f"while values farther from the mean have lower probability density. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "explanatory_3":
-        lo1, hi1 = round(mean - std, 4), round(mean + std, 4)
-        lo2, hi2 = round(mean - 2 * std, 4), round(mean + 2 * std, 4)
-        lo3, hi3 = round(mean - 3 * std, 4), round(mean + 3 * std, 4)
-
         return (
-            f"You are drawing a sample from a Normal (Gaussian) distribution "
-            f"with mean {mean} and standard deviation {std}{sc}. "
-            f"The distribution is symmetric around {mean}. "
-            f"A typical sample falls between {lo1} and {hi1} (68% probability). "
-            f"Values between {lo2} and {hi2} are fairly common (95% probability), "
-            f"while values outside {lo3} to {hi3} are rare (less than 0.3% probability). "
-            f"Most samples will be close to {mean}; large deviations are possible but uncommon. "
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from a Normal (Gaussian) distribution "
+        f"with mean {mean} and standard deviation {std}{sc}. "
+        f"The natural support of this distribution is all real numbers, "
+        f"so the sample may be negative, zero, or positive. "
+        f"The distribution is bell-shaped and symmetric around its mean of {mean}. "
+        f"The mean {mean} represents the centre of the distribution, "
+        f"and the standard deviation {std} describes the typical spread around that centre. "
+        f"Values closer to the mean have higher probability density, "
+        f"while values farther away are less likely but still possible. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "explanatory_4":
-        lo1, hi1 = round(mean - std, 4), round(mean + std, 4)
-        lo2, hi2 = round(mean - 2 * std, 4), round(mean + 2 * std, 4)
-        lo3, hi3 = round(mean - 3 * std, 4), round(mean + 3 * std, 4)
-
         return (
-            f"You are drawing one independent sample from a Normal (Gaussian) distribution "
-            f"with mean {mean} and standard deviation {std}{sc}. "
-            f"Key properties of this distribution:\n"
-            f"- It is perfectly symmetric around its mean of {mean}, "
-            f"so positive and negative deviations from the mean are equally likely.\n"
-            f"- About 68% of samples fall between {lo1} and {hi1}.\n"
-            f"- About 95% of samples fall between {lo2} and {hi2}.\n"
-            f"- About 99.7% of samples fall between {lo3} and {hi3}.\n"
-            f"- Values far from {mean} (beyond ±{3 * std} from the mean) are very rare "
-            f"but not impossible.\n"
-            f"- Each draw is independent; the value you produce should not be "
-            f"influenced by any previous samples.\n"
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from a Normal (Gaussian) distribution "
+        f"with mean {mean} and standard deviation {std}{sc}. "
+        f"The natural support of this distribution is all real numbers, "
+        f"so the sample may be negative, zero, or positive. "
+        f"The distribution is bell-shaped and symmetric around its mean of {mean}. "
+        f"The mean {mean} represents the centre of the distribution, "
+        f"and the standard deviation {std} describes the typical spread around that centre. "
+        f"Values closer to the mean have higher probability density, "
+        f"while values farther away are less likely but still possible. "
+        f"About 25% of values fall below {q25:.4f}, "
+        f"about 50% fall below {q50:.4f}, "
+        f"and about 75% fall below {q75:.4f}. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "cot":
         return (
-            f"You need to sample one number from a Normal distribution "
-            f"with mean {mean} and standard deviation {std}{sc}. "
-            f"Think step by step: consider the mean, the spread, and where "
-            f"a typical sample would fall. Then output ONLY the sampled number "
-            f"with exactly {decimals} decimal places on the final line. "
-            f"Output only the number."
-        )
+        f"You need to draw one independent sample from a Normal distribution "
+        f"with mean {mean} and standard deviation {std}{sc}. "
+        f"Before answering, reason internally step by step about the distribution's "
+        f"support, shape, and allocation of probability mass. "
+        f"Do not output the reasoning. "
+        f"Output only one sampled number with exactly {decimals} decimal places."
+    )
 
     if prompt_type in {"icl", "icl_cot"}:
         examples = _icl_examples(
@@ -300,7 +320,8 @@ def build_normal_prompt(
             return (
                 f"You are sampling from a Normal distribution with mean {mean} "
                 f"and standard deviation {std}{sc}. "
-                f"Here are {icl_n_examples} example samples from this distribution:\n"
+                f"Here are {icl_n_examples} representative example values "
+                f"from this distribution:\n"
                 f"{example_block}\n"
                 f"Now produce one new independent sample in the same format "
                 f"(exactly {decimals} decimal places). Output only the number."
@@ -310,12 +331,15 @@ def build_normal_prompt(
             return (
                 f"You are sampling from a Normal distribution with mean {mean} "
                 f"and standard deviation {std}{sc}. "
-                f"Here are {icl_n_examples} example samples from this distribution:\n"
+                f"Here are {icl_n_examples} representative example values "
+                f"from this distribution:\n"
                 f"{example_block}\n"
-                f"Think step by step about where the next sample should fall "
-                f"relative to the mean and spread shown above. "
-                f"Then output ONLY one new sample with exactly {decimals} decimal places. "
-                f"Output only the number."
+                f"Before answering, reason internally step by step about the distribution's "
+                f"support, shape, and allocation of probability mass, using the examples "
+                f"as additional context. "
+                f"Do not output the reasoning. "
+                f"Output only one new independent sample with exactly "
+                f"{decimals} decimal places."
             )
 
     raise ValueError(f"Unknown prompt_type: {prompt_type!r}")
@@ -338,6 +362,14 @@ def build_uniform_prompt(
     high = spec.params["high"]
 
     support = _support_text(support_mode, lower, upper)
+    if (
+        support_mode == "bounded"
+        and lower == low
+        and upper == high
+    ):
+        support = ""
+
+
     sc = f" {support}" if support else ""
 
     if prompt_type == "short":
@@ -364,9 +396,10 @@ def build_uniform_prompt(
 
     if prompt_type == "explanatory_1":
         return (
-            f"You are drawing a sample from a continuous Uniform distribution "
-            f"between {low} and {high}{sc}. "
-            f"Every value in this interval is equally likely in terms of probability density. "
+            f"You are drawing one independent sample from a continuous Uniform distribution "
+            f"on the interval [{low}, {high}]{sc}. "
+            f"The natural support of this distribution is exactly [{low}, {high}], "
+            f"so values outside this interval are impossible. "
             f"Output the sample as a number with exactly {decimals} decimal places. "
             f"Output only the number."
         )
@@ -375,60 +408,69 @@ def build_uniform_prompt(
         mid = (low + high) / 2
 
         return (
-            f"You are drawing a sample from a continuous Uniform distribution "
-            f"on [{low}, {high}]{sc}. "
-            f"The probability density is constant across the whole interval. "
-            f"Values near {low}, near {mid}, and near {high} are not preferred by the distribution; "
-            f"equal-length subintervals have equal probability. "
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from a continuous Uniform distribution "
+        f"on the interval [{low}, {high}]{sc}. "
+        f"The natural support of this distribution is exactly [{low}, {high}], "
+        f"so values outside this interval are impossible. "
+        f"The probability density is constant across the entire interval. "
+        f"Equal-length subintervals have equal probability, and values near the centre "
+        f"{mid} are not more likely than values near either boundary. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "explanatory_3":
         mid = (low + high) / 2
+        spread = (high - low) / (12 ** 0.5)
 
         return (
-            f"You are drawing a sample from a continuous Uniform distribution "
-            f"on [{low}, {high}]{sc}. "
-            f"The distribution has hard bounds: values below {low} and above {high} "
-            f"have probability zero. "
-            f"Within the interval, the density is flat: every interval of the same length "
-            f"has the same probability. "
-            f"There is no central peak around {mid}; the middle is not more likely than the edges. "
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from a continuous Uniform distribution "
+        f"on the interval [{low}, {high}]{sc}. "
+        f"The natural support of this distribution is exactly [{low}, {high}], "
+        f"so values outside this interval are impossible. "
+        f"The probability density is constant across the entire interval. "
+        f"Equal-length subintervals have equal probability, and the distribution "
+        f"does not favour values near the centre over values near the boundaries. "
+        f"The mean {mid:.4f} represents the centre of the interval, "
+        f"and the standard deviation {spread:.4f} describes its spread. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "explanatory_4":
         mid = (low + high) / 2
-        q1 = low + 0.25 * (high - low)
-        q3 = low + 0.75 * (high - low)
+        spread = (high - low) / (12 ** 0.5)
+
+        q25 = low + 0.25 * (high - low)
+        q50 = mid
+        q75 = low + 0.75 * (high - low)
 
         return (
-            f"You are drawing one independent sample from a continuous Uniform distribution "
-            f"on the interval [{low}, {high}]{sc}. "
-            f"Key properties of this distribution:\n"
-            f"- The support is exactly [{low}, {high}]. Values outside this interval are impossible.\n"
-            f"- The probability density is constant across the interval.\n"
-            f"- Equal-length intervals have equal probability.\n"
-            f"- The distribution does not concentrate around the centre {mid}; "
-            f"values near the lower bound, middle, and upper bound are all generated according to the same flat density.\n"
-            f"- About 25% of values fall below {q1}, about 50% fall below {mid}, "
-            f"and about 75% fall below {q3}.\n"
-            f"- Each draw is independent; the value you produce should not be influenced by previous samples.\n"
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from a continuous Uniform distribution "
+        f"on the interval [{low}, {high}]{sc}. "
+        f"The natural support of this distribution is exactly [{low}, {high}], "
+        f"so values outside this interval are impossible. "
+        f"The probability density is constant across the entire interval. "
+        f"Equal-length subintervals have equal probability, and the distribution "
+        f"does not favour values near the centre over values near the boundaries. "
+        f"The mean {mid:.4f} represents the centre of the interval, "
+        f"and the standard deviation {spread:.4f} describes its spread. "
+        f"About 25% of values fall below {q25:.4f}, "
+        f"about 50% fall below {q50:.4f}, "
+        f"and about 75% fall below {q75:.4f}. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "cot":
         return (
-            f"You need to sample one number from a continuous Uniform distribution "
-            f"on [{low}, {high}]{sc}. "
-            f"Think step by step: consider the hard lower and upper bounds, and remember that "
-            f"all equal-length intervals inside the support have equal probability. "
-            f"Then output ONLY the sampled number with exactly {decimals} decimal places on the final line. "
-            f"Output only the number."
-        )
+        f"You need to draw one independent sample from a continuous Uniform distribution "
+        f"on the interval [{low}, {high}]{sc}. "
+        f"Before answering, reason internally step by step about the distribution's "
+        f"support, shape, and allocation of probability mass. "
+        f"Do not output the reasoning. "
+        f"Output only one sampled number with exactly {decimals} decimal places."
+    )
 
     if prompt_type in {"icl", "icl_cot"}:
         examples = _icl_examples(
@@ -445,7 +487,8 @@ def build_uniform_prompt(
             return (
                 f"You are sampling from a continuous Uniform distribution "
                 f"on [{low}, {high}]{sc}. "
-                f"Here are {icl_n_examples} example samples from this distribution:\n"
+                f"Here are {icl_n_examples} representative example values "
+                f"from this distribution:\n"
                 f"{example_block}\n"
                 f"Now produce one new independent sample in the same format "
                 f"(exactly {decimals} decimal places). Output only the number."
@@ -455,11 +498,15 @@ def build_uniform_prompt(
             return (
                 f"You are sampling from a continuous Uniform distribution "
                 f"on [{low}, {high}]{sc}. "
-                f"Here are {icl_n_examples} example samples from this distribution:\n"
+                f"Here are {icl_n_examples} representative example values "
+                f"from this distribution:\n"
                 f"{example_block}\n"
-                f"Think step by step about the support and the flat density of the distribution. "
-                f"Then output ONLY one new independent sample with exactly {decimals} decimal places. "
-                f"Output only the number."
+                f"Before answering, reason internally step by step about the distribution's "
+                f"support, shape, and allocation of probability mass, using the examples "
+                f"as additional context. "
+                f"Do not output the reasoning. "
+                f"Output only one new independent sample with exactly "
+                f"{decimals} decimal places."
             )
 
     raise ValueError(f"Unknown prompt_type: {prompt_type!r}")
@@ -489,6 +536,13 @@ def build_exponential_prompt(
     mean = 1.0 / rate
 
     support = _support_text(support_mode, lower, upper)
+    if (
+        support_mode == "positive"
+        and (lower is None or lower == 0)
+        and upper is None
+    ):
+        support = ""
+
     sc = f" {support}" if support else ""
 
     if prompt_type == "short":
@@ -515,73 +569,79 @@ def build_exponential_prompt(
 
     if prompt_type == "explanatory_1":
         return (
-            f"You are drawing a sample from an Exponential distribution "
+            f"You are drawing one independent sample from an Exponential distribution "
             f"with rate {rate}{sc}. "
-            f"This distribution is non-negative and right-skewed. "
+            f"The natural support of this distribution is [0, infinity), "
+            f"so negative values are impossible. "
             f"Output the sample as a number with exactly {decimals} decimal places. "
             f"Output only the number."
         )
 
     if prompt_type == "explanatory_2":
         return (
-            f"You are drawing a sample from an Exponential distribution "
-            f"with rate {rate}{sc}. "
-            f"The support is non-negative: values below 0 are impossible. "
-            f"The density is highest near 0 and decreases as the value becomes larger. "
-            f"The mean of this distribution is {mean:.4f}. "
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from an Exponential distribution "
+        f"with rate {rate}{sc}. "
+        f"The natural support of this distribution is [0, infinity), "
+        f"so negative values are impossible. "
+        f"The distribution is right-skewed. "
+        f"The probability density is highest near 0 and decreases continuously "
+        f"as the value becomes larger. "
+        f"Small positive values are therefore more common, while large values "
+        f"are possible but increasingly unlikely. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "explanatory_3":
-        q50 = 0.6931471805599453 / rate
-        q90 = 2.302585092994046 / rate
-        q95 = 2.995732273553991 / rate
-
         return (
-            f"You are drawing a sample from an Exponential distribution "
-            f"with rate {rate}{sc}. "
-            f"The distribution is right-skewed: small positive values are common, "
-            f"and large values are possible but increasingly rare. "
-            f"Values below 0 have probability zero. "
-            f"The median is about {q50:.4f}, about 90% of values fall below {q90:.4f}, "
-            f"and about 95% of values fall below {q95:.4f}. "
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from an Exponential distribution "
+        f"with rate {rate}{sc}. "
+        f"The natural support of this distribution is [0, infinity), "
+        f"so negative values are impossible. "
+        f"The distribution is right-skewed. "
+        f"The probability density is highest near 0 and decreases continuously "
+        f"as the value becomes larger. "
+        f"Small positive values are common, while large values are possible "
+        f"but increasingly unlikely. "
+        f"The mean is {mean:.4f}, and the standard deviation is also {mean:.4f}. "
+        f"These values describe the average value and spread of the distribution. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "explanatory_4":
+        q25 = 0.2876820724517809 / rate
         q50 = 0.6931471805599453 / rate
-        q90 = 2.302585092994046 / rate
-        q95 = 2.995732273553991 / rate
-        q99 = 4.605170185988092 / rate
+        q75 = 1.3862943611198906 / rate
 
         return (
-            f"You are drawing one independent sample from an Exponential distribution "
-            f"with rate {rate}{sc}. "
-            f"Key properties of this distribution:\n"
-            f"- The support is [0, infinity). Values below 0 are impossible.\n"
-            f"- The density is highest near 0 and decreases continuously as the value increases.\n"
-            f"- The distribution is right-skewed: small values are common, while large values are rare but possible.\n"
-            f"- The mean is {mean:.4f}, and the standard deviation is also {mean:.4f}.\n"
-            f"- About 50% of values fall below {q50:.4f}.\n"
-            f"- About 90% of values fall below {q90:.4f}.\n"
-            f"- About 95% of values fall below {q95:.4f}.\n"
-            f"- About 99% of values fall below {q99:.4f}.\n"
-            f"- Each draw is independent; the value you produce should not be influenced by previous samples.\n"
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from an Exponential distribution "
+        f"with rate {rate}{sc}. "
+        f"The natural support of this distribution is [0, infinity), "
+        f"so negative values are impossible. "
+        f"The distribution is right-skewed. "
+        f"The probability density is highest near 0 and decreases continuously "
+        f"as the value becomes larger. "
+        f"Small positive values are common, while large values are possible "
+        f"but increasingly unlikely. "
+        f"The mean is {mean:.4f}, and the standard deviation is also {mean:.4f}. "
+        f"These values describe the average value and spread of the distribution. "
+        f"About 25% of values fall below {q25:.4f}, "
+        f"about 50% fall below {q50:.4f}, "
+        f"and about 75% fall below {q75:.4f}. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "cot":
         return (
-            f"You need to sample one number from an Exponential distribution "
-            f"with rate {rate}{sc}. "
-            f"Think step by step: values must be non-negative, small values are more common, "
-            f"and larger values become increasingly rare. "
-            f"Then output ONLY the sampled number with exactly {decimals} decimal places on the final line. "
-            f"Output only the number."
-        )
+        f"You need to draw one independent sample from an Exponential distribution "
+        f"with rate {rate}{sc}. "
+        f"Before answering, reason internally step by step about the distribution's "
+        f"support, shape, and allocation of probability mass. "
+        f"Do not output the reasoning. "
+        f"Output only one sampled number with exactly {decimals} decimal places."
+    )
 
     if prompt_type in {"icl", "icl_cot"}:
         examples = _icl_examples(
@@ -598,7 +658,8 @@ def build_exponential_prompt(
             return (
                 f"You are sampling from an Exponential distribution "
                 f"with rate {rate}{sc}. "
-                f"Here are {icl_n_examples} example samples from this distribution:\n"
+                f"Here are {icl_n_examples} representative example values "
+                f"from this distribution:\n"
                 f"{example_block}\n"
                 f"Now produce one new independent sample in the same format "
                 f"(exactly {decimals} decimal places). Output only the number."
@@ -608,12 +669,15 @@ def build_exponential_prompt(
             return (
                 f"You are sampling from an Exponential distribution "
                 f"with rate {rate}{sc}. "
-                f"Here are {icl_n_examples} example samples from this distribution:\n"
+                f"Here are {icl_n_examples} representative example values "
+                f"from this distribution:\n"
                 f"{example_block}\n"
-                f"Think step by step about the non-negative support and the right-skewed shape. "
-                f"Small values are common, and large values are increasingly rare. "
-                f"Then output ONLY one new independent sample with exactly {decimals} decimal places. "
-                f"Output only the number."
+                f"Before answering, reason internally step by step about the distribution's "
+                f"support, shape, and allocation of probability mass, using the examples "
+                f"as additional context. "
+                f"Do not output the reasoning. "
+                f"Output only one new independent sample with exactly "
+                f"{decimals} decimal places."
             )
 
     raise ValueError(f"Unknown prompt_type: {prompt_type!r}")
@@ -641,6 +705,13 @@ def build_beta_prompt(
     beta = spec.params["beta"]
 
     support = _support_text(support_mode, lower, upper)
+    if (
+        support_mode == "bounded"
+        and lower == 0
+        and upper == 1
+    ):
+        support = ""
+
     sc = f" {support}" if support else ""
 
     # Simple shape description for common cases
@@ -672,6 +743,12 @@ def build_beta_prompt(
 
     mean = alpha / (alpha + beta)
 
+    std = ( alpha * beta/ ((alpha + beta) ** 2 * (alpha + beta + 1))) ** 0.5
+
+    q25 = beta_dist.ppf(0.25, alpha, beta)
+    q50 = beta_dist.ppf(0.50, alpha, beta)
+    q75 = beta_dist.ppf(0.75, alpha, beta)
+
     if prompt_type == "short":
         return (
             f"Sample one number from Beta({alpha}, {beta}){sc}. "
@@ -697,61 +774,68 @@ def build_beta_prompt(
 
     if prompt_type == "explanatory_1":
         return (
-            f"You are drawing a sample from a continuous Beta distribution "
-            f"with alpha {alpha} and beta {beta}{sc}. "
-            f"The distribution is supported on the interval [0, 1]. "
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
-
+        f"You are drawing one independent sample from a continuous Beta distribution "
+        f"with alpha {alpha} and beta {beta}{sc}. "
+        f"The natural support of this distribution is exactly [0, 1], "
+        f"so values below 0 or above 1 are impossible. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
     if prompt_type == "explanatory_2":
         return (
-            f"You are drawing a sample from a continuous Beta distribution "
-            f"with alpha {alpha} and beta {beta}{sc}. "
-            f"The support is [0, 1], so values below 0 or above 1 are impossible. "
-            f"{shape_text} "
-            f"The mean of this distribution is {mean:.4f}. "
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from a continuous Beta distribution "
+        f"with alpha {alpha} and beta {beta}{sc}. "
+        f"The natural support of this distribution is exactly [0, 1], "
+        f"so values below 0 or above 1 are impossible. "
+        f"{shape_text} "
+        f"The probability density varies across the interval according to "
+        f"the alpha and beta parameters. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "explanatory_3":
         return (
-            f"You are drawing a sample from a continuous Beta distribution "
-            f"with alpha {alpha} and beta {beta}{sc}. "
-            f"The support is [0, 1]. "
-            f"{shape_text} "
-            f"For Beta({alpha}, {beta}), the parameters determine how much mass is near "
-            f"0, near 1, or near the centre. "
-            f"Because the support is bounded, samples must stay between 0 and 1. "
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from a continuous Beta distribution "
+        f"with alpha {alpha} and beta {beta}{sc}. "
+        f"The natural support of this distribution is exactly [0, 1], "
+        f"so values below 0 or above 1 are impossible. "
+        f"{shape_text} "
+        f"The probability density varies across the interval according to "
+        f"the alpha and beta parameters. "
+        f"The mean is {mean:.4f}, and the standard deviation is {std:.4f}. "
+        f"These values describe the centre and spread of the distribution. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "explanatory_4":
         return (
-            f"You are drawing one independent sample from a continuous Beta distribution "
-            f"with shape parameters alpha={alpha} and beta={beta}{sc}. "
-            f"Key properties of this distribution:\n"
-            f"- The support is exactly [0, 1]. Values below 0 and above 1 are impossible.\n"
-            f"- The alpha and beta parameters control the shape of the density.\n"
-            f"- For this parameter setting, {shape_text}\n"
-            f"- The mean is alpha / (alpha + beta) = {mean:.4f}.\n"
-            f"- A draw should follow the density shape, not just choose any number uniformly from [0, 1].\n"
-            f"- Each draw is independent; the value you produce should not be influenced by previous samples.\n"
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from a continuous Beta distribution "
+        f"with alpha {alpha} and beta {beta}{sc}. "
+        f"The natural support of this distribution is exactly [0, 1], "
+        f"so values below 0 or above 1 are impossible. "
+        f"{shape_text} "
+        f"The probability density varies across the interval according to "
+        f"the alpha and beta parameters. "
+        f"The mean is {mean:.4f}, and the standard deviation is {std:.4f}. "
+        f"These values describe the centre and spread of the distribution. "
+        f"About 25% of values fall below {q25:.4f}, "
+        f"about 50% fall below {q50:.4f}, "
+        f"and about 75% fall below {q75:.4f}. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "cot":
         return (
-            f"You need to sample one number from a Beta distribution "
-            f"with alpha {alpha} and beta {beta}{sc}. "
-            f"Think step by step: values must lie between 0 and 1, and the shape of the "
-            f"density is determined by alpha and beta. {shape_text} "
-            f"Then output ONLY the sampled number with exactly {decimals} decimal places on the final line. "
-            f"Output only the number."
-        )
+        f"You need to draw one independent sample from a continuous Beta distribution "
+        f"with alpha {alpha} and beta {beta}{sc}. "
+        f"Before answering, reason internally step by step about the distribution's "
+        f"support, shape, and allocation of probability mass. "
+        f"Do not output the reasoning. "
+        f"Output only one sampled number with exactly {decimals} decimal places."
+    )
 
     if prompt_type in {"icl", "icl_cot"}:
         examples = _icl_examples(
@@ -768,7 +852,8 @@ def build_beta_prompt(
             return (
                 f"You are sampling from a continuous Beta distribution "
                 f"with alpha {alpha} and beta {beta}{sc}. "
-                f"Here are {icl_n_examples} example samples from this distribution:\n"
+                f"Here are {icl_n_examples} representative example values "
+                f"from this distribution:\n"
                 f"{example_block}\n"
                 f"Now produce one new independent sample in the same format "
                 f"(exactly {decimals} decimal places). Output only the number."
@@ -778,12 +863,15 @@ def build_beta_prompt(
             return (
                 f"You are sampling from a continuous Beta distribution "
                 f"with alpha {alpha} and beta {beta}{sc}. "
-                f"Here are {icl_n_examples} example samples from this distribution:\n"
+                f"Here are {icl_n_examples} representative example values "
+                f"from this distribution:\n"
                 f"{example_block}\n"
-                f"Think step by step about the bounded support [0, 1] and the density shape. "
-                f"{shape_text} "
-                f"Then output ONLY one new independent sample with exactly {decimals} decimal places. "
-                f"Output only the number."
+                f"Before answering, reason internally step by step about the distribution's "
+                f"support, shape, and allocation of probability mass, using the examples "
+                f"as additional context. "
+                f"Do not output the reasoning. "
+                f"Output only one new independent sample with exactly "
+                f"{decimals} decimal places."
             )
 
     raise ValueError(f"Unknown prompt_type: {prompt_type!r}")
@@ -817,6 +905,7 @@ def build_laplace_prompt(
     q25 = loc - scale * 0.6931471805599453
     q50 = loc
     q75 = loc + scale * 0.6931471805599453
+    std = scale * (2 ** 0.5)
 
     if prompt_type == "short":
         return (
@@ -843,64 +932,72 @@ def build_laplace_prompt(
 
     if prompt_type == "explanatory_1":
         return (
-            f"You are drawing a sample from a Laplace distribution "
-            f"with location {loc} and scale {scale}{sc}. "
-            f"The distribution is symmetric around {loc}. "
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from a Laplace distribution "
+        f"with location {loc} and scale {scale}{sc}. "
+        f"The natural support of this distribution is all real numbers, "
+        f"so the sample may be negative, zero, or positive. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "explanatory_2":
         return (
-            f"You are drawing a sample from a Laplace distribution "
-            f"with location {loc} and scale {scale}{sc}. "
-            f"The distribution is symmetric around {loc}, has its highest density at {loc}, "
-            f"and decreases exponentially as values move away from {loc}. "
-            f"Compared with a Normal distribution, it has a sharper peak and heavier tails. "
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from a Laplace distribution "
+        f"with location {loc} and scale {scale}{sc}. "
+        f"The natural support of this distribution is all real numbers, "
+        f"so the sample may be negative, zero, or positive. "
+        f"The distribution is symmetric around its location parameter {loc}. "
+        f"It has its highest probability density at {loc} and a sharp central peak. "
+        f"The probability density decreases exponentially as values move away from {loc}. "
+        f"Values farther from {loc} remain possible but become progressively less likely. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "explanatory_3":
         return (
-            f"You are drawing a sample from a Laplace distribution "
-            f"with location {loc} and scale {scale}{sc}. "
-            f"The distribution is centred at {loc} and is symmetric: negative and positive "
-            f"deviations from {loc} are equally likely. "
-            f"It has a sharp peak at the centre and heavier tails than a Normal distribution, "
-            f"so values close to {loc} are common, but larger deviations are also possible. "
-            f"The median is {q50:.4f}, the lower quartile is about {q25:.4f}, "
-            f"and the upper quartile is about {q75:.4f}. "
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from a Laplace distribution "
+        f"with location {loc} and scale {scale}{sc}. "
+        f"The natural support of this distribution is all real numbers, "
+        f"so the sample may be negative, zero, or positive. "
+        f"The distribution is symmetric around its location parameter {loc}. "
+        f"It has its highest probability density at {loc} and a sharp central peak. "
+        f"The probability density decreases exponentially as values move away from {loc}. "
+        f"Values farther from {loc} remain possible but become progressively less likely. "
+        f"The mean is {loc:.4f}, and the standard deviation is {std:.4f}. "
+        f"These values describe the centre and spread of the distribution. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "explanatory_4":
         return (
-            f"You are drawing one independent sample from a Laplace distribution "
-            f"with location {loc} and scale {scale}{sc}. "
-            f"Key properties of this distribution:\n"
-            f"- The distribution is symmetric around its location parameter {loc}.\n"
-            f"- The highest density occurs at {loc}.\n"
-            f"- Probability decreases exponentially as values move away from {loc}.\n"
-            f"- Compared with a Normal distribution, the Laplace distribution has a sharper central peak.\n"
-            f"- Compared with a Normal distribution, it also has heavier tails, so larger deviations are more likely.\n"
-            f"- The lower quartile is about {q25:.4f}, the median is {q50:.4f}, "
-            f"and the upper quartile is about {q75:.4f}.\n"
-            f"- Each draw is independent; the value you produce should not be influenced by previous samples.\n"
-            f"Output the sample as a number with exactly {decimals} decimal places. "
-            f"Output only the number."
-        )
+        f"You are drawing one independent sample from a Laplace distribution "
+        f"with location {loc} and scale {scale}{sc}. "
+        f"The natural support of this distribution is all real numbers, "
+        f"so the sample may be negative, zero, or positive. "
+        f"The distribution is symmetric around its location parameter {loc}. "
+        f"It has its highest probability density at {loc} and a sharp central peak. "
+        f"The probability density decreases exponentially as values move away from {loc}. "
+        f"Values farther from {loc} remain possible but become progressively less likely. "
+        f"The mean is {loc:.4f}, and the standard deviation is {std:.4f}. "
+        f"These values describe the centre and spread of the distribution. "
+        f"About 25% of values fall below {q25:.4f}, "
+        f"about 50% fall below {q50:.4f}, "
+        f"and about 75% fall below {q75:.4f}. "
+        f"Output the sample as a number with exactly {decimals} decimal places. "
+        f"Output only the number."
+    )
 
     if prompt_type == "cot":
         return (
-            f"You need to sample one number from a Laplace distribution "
-            f"with location {loc} and scale {scale}{sc}. "
-            f"Think step by step: the distribution is symmetric around {loc}, "
-            f"has a sharp central peak, and has heavier tails than a Normal distribution. "
-            f"Then output ONLY the sampled number with exactly {decimals} decimal places on the final line. "
-            f"Output only the number."
-        )
+        f"You need to draw one independent sample from a Laplace distribution "
+        f"with location {loc} and scale {scale}{sc}. "
+        f"Before answering, reason internally step by step about the distribution's "
+        f"support, shape, and allocation of probability mass. "
+        f"Do not output the reasoning. "
+        f"Output only one sampled number with exactly {decimals} decimal places."
+    )
 
     if prompt_type in {"icl", "icl_cot"}:
         examples = _icl_examples(
@@ -917,7 +1014,8 @@ def build_laplace_prompt(
             return (
                 f"You are sampling from a Laplace distribution "
                 f"with location {loc} and scale {scale}{sc}. "
-                f"Here are {icl_n_examples} example samples from this distribution:\n"
+                f"Here are {icl_n_examples} representative example values "
+                f"from this distribution:\n"
                 f"{example_block}\n"
                 f"Now produce one new independent sample in the same format "
                 f"(exactly {decimals} decimal places). Output only the number."
@@ -927,12 +1025,15 @@ def build_laplace_prompt(
             return (
                 f"You are sampling from a Laplace distribution "
                 f"with location {loc} and scale {scale}{sc}. "
-                f"Here are {icl_n_examples} example samples from this distribution:\n"
+                f"Here are {icl_n_examples} representative example values "
+                f"from this distribution:\n"
                 f"{example_block}\n"
-                f"Think step by step about the symmetric shape, the sharp central peak, "
-                f"and the heavier tails compared with a Normal distribution. "
-                f"Then output ONLY one new independent sample with exactly {decimals} decimal places. "
-                f"Output only the number."
+                f"Before answering, reason internally step by step about the distribution's "
+                f"support, shape, and allocation of probability mass, using the examples "
+                f"as additional context. "
+                f"Do not output the reasoning. "
+                f"Output only one new independent sample with exactly "
+                f"{decimals} decimal places."
             )
 
     raise ValueError(f"Unknown prompt_type: {prompt_type!r}")
