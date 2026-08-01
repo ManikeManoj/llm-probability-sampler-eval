@@ -29,6 +29,18 @@ def command_from_config(row: dict) -> list[str]:
         "--mc-reliable-threshold", str(row.get("mc_reliable_threshold", 1000)),
         "--run-id", row["run_id"],
     ]
+    if row.get("icl_n_examples") is not None:
+        cmd.extend([
+            "--icl-n-examples",
+            str(row["icl_n_examples"]),
+    ])
+
+    if row.get("icl_seed") is not None:
+        cmd.extend([
+            "--icl-seed",
+            str(row["icl_seed"]),
+    ])
+        
     if not row.get("load_in_4bit", True):
         cmd.append("--no-4bit")
     return cmd
