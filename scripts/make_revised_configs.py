@@ -152,6 +152,19 @@ MODEL_CATALOG = [
     },
 ]
 
+ALLOWED_PROMPTS = {
+    "short",
+    "plain",
+    "formal",
+    "explanatory_1",
+    "explanatory_2",
+    "explanatory_3",
+    "explanatory_4",
+    "cot",
+    "icl",
+    "icl_cot",
+}
+
 DISTRIBUTIONS = {
     "normal": {
         "distribution": "normal",
@@ -199,6 +212,9 @@ def main():
     ap.add_argument("--stages", default="base,instruct", help="base,instruct,reasoning,all")
     ap.add_argument("--distributions", default="all", help="normal,laplace,uniform,beta,exponential,all")
     ap.add_argument("--prompts", default="plain", help="comma-separated prompt types, e.g. plain,explanatory_4")
+    ap.add_argument("--icl-n-examples",type=int,default=5,help="Number of representative values used for ICL prompts")
+    ap.add_argument("--icl-seed",type=int,default=0,help="Seed used to construct and shuffle representative ICL values")
+    ap.add_argument("--prompt-template-version",default="balanced_v1",help="Version label for the prompt template collection")
     ap.add_argument("--n-samples", type=int, default=500000)
     ap.add_argument("--decimals", type=int, default=3)
     ap.add_argument("--seed", type=int, default=42)
@@ -220,6 +236,15 @@ def main():
     dist_filter = parse_csv_set(args.distributions, allowed_dists, "distribution")
     prompts = [p.strip() for p in args.prompts.split(",") if p.strip()]
 
+    unknown_prompts = set(prompts) - ALLOWED_PROMPTS
+
+    if unknown_prompts:
+        raise ValueError( f"Unknown prompt types: {sorted(unknown_prompts)}. "
+                         f"Allowed: {sorted(ALLOWED_PROMPTS)}" )
+
+    if args.icl_n_examples <1:
+        raise ValueError("--icl-n-examples must be at least 1")
+
     quantization = "4bit" if not args.no_4bit else "bf16"
     tag = args.tag or f"rq_core_{quantization}"
     generated_at = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -235,6 +260,11 @@ def main():
         for dist_name in sorted(dist_filter):
             dist = DISTRIBUTIONS[dist_name]
             for prompt in prompts:
+                prompt_family, prompt_level, prompt_protocol = prompt_metadata(prompt)
+                uses_internal_reasoning = prompt in {"cot", "icl_cot"}
+                uses_icl = prompt in {"icl", "icl_cot"}
+
+
                 run_id = (
                     f"{tag}_{model['model_alias']}_{dist_name}_{prompt}_"
                     f"n{args.n_samples}_d{args.decimals}_{quantization}"
@@ -242,8 +272,11 @@ def main():
                 rows.append({
                     **model,
                     "run_id": run_id,
-                    "prompt_protocol": "raw_direct",
-                    "reasoning_protocol": "direct_numeric" if model["model_stage"] == "reasoning" else "none",
+                    "prompt_family": prompt_family,
+                    "prompt_level": prompt_level,
+                    "prompt_protocol": prompt_protocol,
+                    "reasoning_protocol": ("internal_reasoning_cue"if uses_internal_reasoning else "none"),
+                    "prompt_template_version": args.prompt_template_version,
                     "quantization": quantization,
                     "load_in_4bit": not args.no_4bit,
                     "lm_scoring_method": args.lm_scoring_method,
@@ -256,6 +289,9 @@ def main():
                     "seed": args.seed,
                     "mc_reliable_threshold": args.mc_reliable_threshold,
                     "generated_at": generated_at,
+                    "icl_n_examples": args.icl_n_examples if uses_icl else None,
+                    "icl_seed": args.icl_seed if uses_icl else None,
+                    "icl_example_selection": ("shuffled_empirical_quantiles" if uses_icl else None),
                 })
 
     out = Path(args.out)
@@ -272,6 +308,35 @@ def main():
     for key, count in sorted(by_stage.items()):
         print(f"  {key}: {count}")
 
+def prompt_metadata(prompt: str) -> tuple[str, int | None, str]:
+    """
+    Return:
+    - prompt family
+    - explanatory level, if applicable
+    - prompt intervention/protocol
+    """
+
+    if prompt in {"short", "plain", "formal"}:
+        return "direct", None, "direct_instruction"
+
+    if prompt.startswith("explanatory_"):
+        level = int(prompt.rsplit("_", 1)[1])
+        return "explanatory", level, "explanatory_guidance"
+
+    if prompt == "cot":
+        return "reasoning_examples", None, "internal_reasoning_cue"
+
+    if prompt == "icl":
+        return "reasoning_examples", None, "representative_icl"
+
+    if prompt == "icl_cot":
+        return (
+            "reasoning_examples",
+            None,
+            "representative_icl_with_internal_reasoning",
+        )
+
+    raise ValueError(f"Unknown prompt type: {prompt!r}")
 
 if __name__ == "__main__":
     main()
