@@ -10,7 +10,8 @@ from distributions import DistributionSpec, default_support_for_distribution, fo
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-name", type=str, default="Qwen/Qwen3-4B", help="HuggingFace model name to use for next-token predictions.")
-    parser.add_argument("--lm-scoring-method", type=str, default="single_token", choices=["sequence", "single_token","auto"], help="Method for scoring LM logprobs: 'full_sequence' means the logprob of the entire continuation given the prompt, while 'single_token' means the logprob of just the next token after the prompt. 'single_token' is more comparable to the analytic distribution, but 'full_sequence' may be more indicative of actual model behavior for longer continuations.")
+    parser.add_argument("--lm-scoring-method", type=str, default="single_token", choices=["sequence", "single_token","auto"], help="Method for scoring LM logprobs: sequence, single_token, or auto.")
+    parser.add_argument("--prompt-protocol", type=str, default="raw_direct", choices=["raw_direct", "chat_direct"], help="raw_direct preserves the original prompt+newline+prefix protocol. chat_direct renders the prompt as a user message with the tokenizer chat template and appends the numeric prefix to the assistant generation turn.")
     parser.add_argument("--no-4bit", action="store_true", help="If set, do not load the model in 4-bit precision. This may be necessary for some models that do not support 4-bit loading, but will increase memory usage.")
     #distribution parameters
     parser.add_argument("--distribution", type=str, default="normal", choices=["normal", "uniform", "exponential", "beta", "laplace", "lognormal"], help="Distribution family to use for sampling(normal, uniform, exponential, beta, laplace).")
@@ -116,7 +117,8 @@ if __name__ == "__main__":
     if args.prompt_type in {"icl", "icl_cot"}:
         icl_tag = f"_n{args.icl_n_examples}_s{args.icl_seed}"
 
-    run_id = args.run_id or f"{timestamp}_{model_tag}_{args.distribution}_{pt_tag}{icl_tag}"
+    protocol_tag = "raw" if args.prompt_protocol == "raw_direct" else "chat"
+    run_id = args.run_id or f"{timestamp}_{model_tag}_{args.distribution}_{pt_tag}_{protocol_tag}{icl_tag}"
 
     raw_prefixes = [p.strip() for p in args.prefixes.split(",")]
     prefixes = ["" if p == "ROOT" else p for p in raw_prefixes]
@@ -140,6 +142,7 @@ if __name__ == "__main__":
         icl_n_examples=args.icl_n_examples,
         icl_seed=args.icl_seed,
         lm_scoring_method=args.lm_scoring_method,
+        prompt_protocol=args.prompt_protocol,
         seed=args.seed,
         run_id=run_id,
         distribution=args.distribution,
@@ -153,6 +156,7 @@ if __name__ == "__main__":
     print(f"  run_id            = {run_id}")
     print(f"  model_name        = {args.model_name}")
     print(f"  lm_scoring_method = {args.lm_scoring_method}")
+    print(f"  prompt_protocol   = {args.prompt_protocol}")
     print(f"  load_in_4bit      = {not args.no_4bit}")
     print(f"  distribution      = {args.distribution}")
     print(f"  params            = {params}")

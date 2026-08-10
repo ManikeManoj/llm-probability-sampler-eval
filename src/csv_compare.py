@@ -34,8 +34,9 @@ class RunConfig:
     distribution: str = "normal"
     params: dict | None = None
     model_name: str = "Qwen/Qwen3-4B"
-    lm_scoring_method: str = "single_token" 
-    load_in_4bit: bool = True 
+    lm_scoring_method: str = "single_token"
+    prompt_protocol: str = "raw_direct"
+    load_in_4bit: bool = True
 
 def align_three_distributions(
     mc_dist: dict[str, float],
@@ -265,6 +266,7 @@ def compare_for_prefix(
     params: dict | None = None,
     model_name: str = "Qwen/Qwen3-4B",
     lm_scoring_method: str = "single_token",
+    prompt_protocol: str = "raw_direct",
     load_in_4bit: bool = True,
 
  ):
@@ -309,6 +311,7 @@ def compare_for_prefix(
         model_name=model_name,
         load_in_4bit=load_in_4bit,
         scoring_method=lm_scoring_method,
+        prompt_protocol=prompt_protocol,
 )
 
 
@@ -419,6 +422,7 @@ def compare_for_prefix(
         "params": params,
         "model_name": model_name,
         "lm_scoring_method": lm_scoring_method,
+        "prompt_protocol": prompt_protocol,
         "load_in_4bit": load_in_4bit,
         "precision": precision,
         "n_samples": n_samples,
@@ -464,6 +468,7 @@ def export_token_level_csv(results, filepath):
                 "run_id",
                 "model_name",
                 "lm_scoring_method",
+                "prompt_protocol",
                 "load_in_4bit",
                 "precision",
                 "distribution",
@@ -515,6 +520,7 @@ def export_token_level_csv(results, filepath):
                         result["run_id"],
                         result["model_name"],
                         result["lm_scoring_method"],
+                        result["prompt_protocol"],
                         result["load_in_4bit"],
                         result["precision"],
                         result["distribution"],
@@ -560,6 +566,7 @@ def export_prefix_summary_csv(results, filepath):
                 "run_id",
                 "model_name",
                 "lm_scoring_method",
+                "prompt_protocol",
                 "load_in_4bit",
                 "precision",
                 "distribution",
@@ -606,6 +613,7 @@ def export_prefix_summary_csv(results, filepath):
                     result["run_id"],
                     result["model_name"],
                     result["lm_scoring_method"],
+                    result["prompt_protocol"],
                     result["load_in_4bit"],
                     result["precision"],
                     result["distribution"],
@@ -653,7 +661,8 @@ def run_experiment(config: RunConfig):
     print(
     f"[experiment] model={config.model_name} "
     f"precision={precision} "
-    f"scoring_method={config.lm_scoring_method}"
+    f"scoring_method={config.lm_scoring_method} "
+    f"prompt_protocol={config.prompt_protocol}"
 )
 
     formatted_samples, prefix_to_next_counts, prefix_to_next_probs = build_truth_model(
@@ -703,6 +712,7 @@ def run_experiment(config: RunConfig):
             params=config.params,
             model_name=config.model_name,
             lm_scoring_method=config.lm_scoring_method,
+            prompt_protocol=config.prompt_protocol,
             load_in_4bit=config.load_in_4bit,
             mc_reliable_threshold=config.mc_reliable_threshold,
             run_id=config.run_id,

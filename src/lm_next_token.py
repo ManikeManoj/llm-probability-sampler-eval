@@ -9,6 +9,74 @@ from real_prefix_logic import valid_next_tokens
 
 _MODEL_CACHE = {}
 
+PROMPT_PROTOCOLS = {"raw_direct", "chat_direct"}
+
+
+def build_lm_context(
+    tokenizer,
+    prompt: str,
+    prefix: str,
+    prompt_protocol: str = "raw_direct",
+):
+    """
+    Build the exact text context consumed by the LM.
+
+    raw_direct:
+        Preserves the original thesis protocol exactly:
+            prompt + "\\n" + prefix
+        The tokenizer may add its usual special tokens.
+
+    chat_direct:
+        Treats `prompt` as the user turn, opens the assistant generation turn
+        using the model's own chat template, and then appends `prefix` as the
+        already-generated beginning of the assistant's numeric answer.
+
+        Because apply_chat_template(tokenize=False) already inserts the model's
+        required control/special tokens, the rendered text must later be
+        tokenized with add_special_tokens=False.
+    """
+    if prompt_protocol not in PROMPT_PROTOCOLS:
+        raise ValueError(
+            f"Unknown prompt_protocol={prompt_protocol!r}. "
+            f"Use one of {sorted(PROMPT_PROTOCOLS)}."
+        )
+
+    if prompt_protocol == "raw_direct":
+        return prompt + "\n" + prefix, True
+
+    if not hasattr(tokenizer, "apply_chat_template"):
+        raise ValueError(
+            f"Tokenizer {type(tokenizer).__name__} does not expose "
+            "apply_chat_template(), so chat_direct cannot be used."
+        )
+
+    messages = [{"role": "user", "content": prompt}]
+
+    # Qwen3/Gemma 4 templates support enable_thinking=False. Keep a narrow
+    # fallback for templates that do not accept that template variable.
+    try:
+        rendered = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+    except TypeError:
+        rendered = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+
+    if not isinstance(rendered, str) or len(rendered) == 0:
+        raise ValueError(
+            "apply_chat_template() did not return a non-empty rendered string."
+        )
+
+    # Critical design choice: prefix is assistant output, not part of user turn.
+    return rendered + prefix, False
+
+
 
 def load_lm(
     model_name: str = "Qwen/Qwen3-4B",
@@ -75,7 +143,12 @@ def _normalize_logprobs(logprobs_dict: dict[str, float]):
     return probs_dict, norm_logprobs_dict
 
 
-def _candidate_tail_ids_and_inputs(tokenizer, context: str, candidate: str):
+def _candidate_tail_ids_and_inputs(
+    tokenizer,
+    context: str,
+    candidate: str,
+    add_special_tokens: bool = True,
+):
     """
     Find the tokenizer-token continuation needed to append visible `candidate`
     after `context`.
@@ -92,13 +165,13 @@ def _candidate_tail_ids_and_inputs(tokenizer, context: str, candidate: str):
     context_inputs = tokenizer(
         context,
         return_tensors="pt",
-        add_special_tokens=True,
+        add_special_tokens=add_special_tokens,
     )
 
     full_inputs = tokenizer(
         context + candidate,
         return_tensors="pt",
-        add_special_tokens=True,
+        add_special_tokens=add_special_tokens,
     )
 
     context_ids = context_inputs["input_ids"][0].tolist()
@@ -130,7 +203,13 @@ def _candidate_tail_ids_and_inputs(tokenizer, context: str, candidate: str):
     return context_ids, tail_ids, full_inputs
 
 
-def _candidate_sequence_logprob(tokenizer, model, context: str, candidate: str) -> float:
+def _candidate_sequence_logprob(
+    tokenizer,
+    model,
+    context: str,
+    candidate: str,
+    add_special_tokens: bool = True,
+) -> float:
     """
     Compute log P(visible candidate string | context).
 
@@ -142,6 +221,7 @@ def _candidate_sequence_logprob(tokenizer, model, context: str, candidate: str) 
         tokenizer=tokenizer,
         context=context,
         candidate=candidate,
+        add_special_tokens=add_special_tokens,
     )
 
     device = get_model_input_device(model)
@@ -171,6 +251,7 @@ def next_token_distribution_single_token(
     allow_negative: bool = True,
     model_name: str = "Qwen/Qwen3-4B",
     load_in_4bit: bool = True,
+    prompt_protocol: str = "raw_direct",
 ):
     """
     Original method.
@@ -194,9 +275,18 @@ def next_token_distribution_single_token(
 
     allowed_token_ids = token_ids_for_strings(allowed, tokenizer)
 
-    full_text = prompt + "\n" + prefix
+    full_text, add_special_tokens = build_lm_context(
+        tokenizer=tokenizer,
+        prompt=prompt,
+        prefix=prefix,
+        prompt_protocol=prompt_protocol,
+    )
 
-    inputs = tokenizer(full_text, return_tensors="pt")
+    inputs = tokenizer(
+        full_text,
+        return_tensors="pt",
+        add_special_tokens=add_special_tokens,
+    )
 
     device = get_model_input_device(model)
     inputs = {k: v.to(device) for k, v in inputs.items()}
@@ -235,6 +325,7 @@ def next_token_distribution_sequence(
     allow_negative: bool = True,
     model_name: str = "Qwen/Qwen3-4B",
     load_in_4bit: bool = True,
+    prompt_protocol: str = "raw_direct",
 ):
     """
     Mistral bridge method.
@@ -260,7 +351,12 @@ def next_token_distribution_sequence(
         load_in_4bit=load_in_4bit,
     )
 
-    full_text = prompt + "\n" + prefix
+    full_text, add_special_tokens = build_lm_context(
+        tokenizer=tokenizer,
+        prompt=prompt,
+        prefix=prefix,
+        prompt_protocol=prompt_protocol,
+    )
 
     candidate_logprobs = {}
 
@@ -270,6 +366,7 @@ def next_token_distribution_sequence(
             model=model,
             context=full_text,
             candidate=tok,
+            add_special_tokens=add_special_tokens,
         )
 
     return _normalize_logprobs(candidate_logprobs)
@@ -283,6 +380,7 @@ def next_token_distribution(
     model_name: str = "Qwen/Qwen3-4B",
     load_in_4bit: bool = True,
     scoring_method: str = "single_token",
+    prompt_protocol: str = "raw_direct",
 ):
     """
     Public dispatcher.
@@ -300,6 +398,7 @@ def next_token_distribution(
             allow_negative=allow_negative,
             model_name=model_name,
             load_in_4bit=load_in_4bit,
+            prompt_protocol=prompt_protocol,
         )
 
     if scoring_method == "sequence":
@@ -310,6 +409,7 @@ def next_token_distribution(
             allow_negative=allow_negative,
             model_name=model_name,
             load_in_4bit=load_in_4bit,
+            prompt_protocol=prompt_protocol,
         )
 
     if scoring_method == "auto":
@@ -321,6 +421,7 @@ def next_token_distribution(
                 allow_negative=allow_negative,
                 model_name=model_name,
                 load_in_4bit=load_in_4bit,
+                prompt_protocol=prompt_protocol,
             )
         except ValueError as e:
             print("[scoring] single_token failed, falling back to sequence.")
@@ -333,6 +434,7 @@ def next_token_distribution(
                 allow_negative=allow_negative,
                 model_name=model_name,
                 load_in_4bit=load_in_4bit,
+                prompt_protocol=prompt_protocol,
             )
 
     raise ValueError(
