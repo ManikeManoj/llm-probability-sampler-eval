@@ -56,24 +56,67 @@ def truncated_normal_interval_mass(
     return numerator / denominator
 
 # 2. Prefix Mass for Integer / Decimal Prefixes
+def _rounding_half_unit(decimals: int) -> float:
+    """Half of the output quantization step for fixed-decimal formatting.
+
+    With d decimal places, formatted values lie on a grid with spacing
+    q = 10**(-d).  Except on measure-zero tie points, a formatted value y
+    represents original values in [y-q/2, y+q/2).
+    """
+    if decimals < 0:
+        raise ValueError("decimals must be non-negative")
+    return 0.5 * (10.0 ** (-decimals))
+
+
+def _rounding_shift_for_prefix(prefix: str, decimals: int) -> float:
+    """Shift a textual-prefix interval from truncation geometry to rounding geometry.
+
+    Positive textual prefixes move left by half a quantization unit; negative
+    textual prefixes move right by the same amount.  This converts intervals
+    such as [0.5, 0.6) into [0.4995, 0.5995) for three-decimal formatting.
+    """
+    half = _rounding_half_unit(decimals)
+    return half if prefix.startswith("-") else -half
+
+
+def _clip_signed_zero_interval(prefix: str, left: float, right: float) -> tuple[float, float]:
+    """Respect the sign preserved by fixed-decimal formatting near zero.
+
+    Python formatting preserves a negative sign for small negative values that
+    round to zero (e.g. -0.0004 -> '-0.000').  Therefore textual prefixes that
+    begin with '0' must not absorb negative x, and '-0' prefixes must not absorb
+    positive x.
+    """
+    if prefix.startswith("-0"):
+        right = min(right, 0.0)
+    elif prefix.startswith("0"):
+        left = max(left, 0.0)
+    return left, right
+
+
 def integer_prefix_mass(
     prefix: str,
     mu: float,
     sigma: float,
     lower: float | None,
     upper: float | None,
+    decimals: int = 3,
     max_extra_digits: int = 12,
     tol: float = 1e-15,
 ) -> float:
+    """Backward-compatible Normal-only integer-prefix mass, rounding-aware."""
+
+    half = _rounding_half_unit(decimals)
 
     if prefix == "0":
-        return truncated_normal_interval_mass(0.0, 1.0, mu, sigma, lower, upper)
+        return truncated_normal_interval_mass(0.0, 1.0 - half, mu, sigma, lower, upper)
 
     if prefix == "-0":
-        return truncated_normal_interval_mass(-1.0, 0.0, mu, sigma, lower, upper)
+        return truncated_normal_interval_mass(-1.0 + half, 0.0, mu, sigma, lower, upper)
 
     base = float(prefix)
     succ = successor_value(prefix)
+    shift = _rounding_shift_for_prefix(prefix, decimals)
 
     total = 0.0
     tiny_count = 0
@@ -82,11 +125,12 @@ def integer_prefix_mass(
         a = base * (10 ** i)
         b = succ * (10 ** i)
         left, right = ordered_interval(a, b)
+        left += shift
+        right += shift
 
         mass = truncated_normal_interval_mass(left, right, mu, sigma, lower, upper)
         total += mass
 
-        
         if mass < tol:
             tiny_count += 1
             if tiny_count >= 3:
@@ -97,11 +141,26 @@ def integer_prefix_mass(
     return total
 
 
-def decimal_prefix_interval(prefix: str) -> tuple[float, float]:
+def decimal_prefix_interval(prefix: str, decimals: int = 3) -> tuple[float, float]:
+    """Underlying x interval whose rounded fixed-decimal string starts with prefix.
 
+    Example for decimals=3:
+        '0.5'  -> [0.4995, 0.5995)
+        '-0.5' -> [-0.5995, -0.4995)
+        '10.'  -> [9.9995, 10.9995)
+
+    Signed-zero prefixes are clipped at zero because formatting preserves the
+    sign of negative values that round to zero.
+    """
     base = float(prefix)
     succ = successor_value(prefix)
-    return ordered_interval(base, succ)
+    left, right = ordered_interval(base, succ)
+
+    shift = _rounding_shift_for_prefix(prefix, decimals)
+    left += shift
+    right += shift
+
+    return _clip_signed_zero_interval(prefix, left, right)
 
 def prefix_mass(
     prefix: str,
@@ -111,6 +170,7 @@ def prefix_mass(
     sigma: float | None = None,
     lower: float | None = None,
     upper: float | None = None,
+    decimals: int = 3,
     max_extra_digits: int = 12,
 ) -> float:
     
@@ -146,11 +206,12 @@ def prefix_mass(
             spec=spec,
             lower=lower,
             upper=upper,
+            decimals=decimals,
             max_extra_digits=max_extra_digits,
         )
 
     if kind in {"dot", "fraction"}:
-        left, right = decimal_prefix_interval(prefix)
+        left, right = decimal_prefix_interval(prefix, decimals=decimals)
         return interval_mass(
             left,
             right,
@@ -167,11 +228,12 @@ def integer_prefix_mass_generic(
     spec: DistributionSpec,
     lower: float | None,
     upper: float | None,
+    decimals: int = 3,
     max_extra_digits: int = 12,
     tol: float = 1e-15,
 ) -> float:
     """
-    Mass of all numbers whose integer/string prefix begins with `prefix`.
+    Mass of all rounded/formatted numbers whose integer/string prefix begins with `prefix`.
 
     Example:
         prefix "4" includes:
@@ -183,14 +245,17 @@ def integer_prefix_mass_generic(
     This is generic across distributions because it uses interval_mass().
     """
 
+    half = _rounding_half_unit(decimals)
+
     if prefix == "0":
-        return interval_mass(0.0, 1.0, spec=spec, lower=lower, upper=upper)
+        return interval_mass(0.0, 1.0 - half, spec=spec, lower=lower, upper=upper)
 
     if prefix == "-0":
-        return interval_mass(-1.0, 0.0, spec=spec, lower=lower, upper=upper)
+        return interval_mass(-1.0 + half, 0.0, spec=spec, lower=lower, upper=upper)
 
     base = float(prefix)
     succ = successor_value(prefix)
+    shift = _rounding_shift_for_prefix(prefix, decimals)
 
     total = 0.0
     tiny_count = 0
@@ -200,6 +265,8 @@ def integer_prefix_mass_generic(
         b = succ * (10 ** i)
 
         left, right = ordered_interval(a, b)
+        left += shift
+        right += shift
 
         mass = interval_mass(
             left,
@@ -251,6 +318,7 @@ def next_token_truth_distribution(
         sigma=sigma,
         lower=lower,
         upper=upper,
+        decimals=decimals,
         max_extra_digits=max_extra_digits,
     )
 
@@ -270,6 +338,7 @@ def next_token_truth_distribution(
             sigma=sigma,
             lower=lower,
             upper=upper,
+            decimals=decimals,
             max_extra_digits=max_extra_digits,
         )
 
