@@ -317,7 +317,7 @@ def next_token_distribution_single_token(
 
     return probs_dict, logprobs_dict
 
-
+# This is a next token distribution method that scores each valid visible continuation string, even if that visible continuation is represented by more than one tokenizer token. This is useful for models like Mistral that may have multi-token representations for certain visible continuations.
 def next_token_distribution_sequence(
     prompt: str,
     prefix: str,
