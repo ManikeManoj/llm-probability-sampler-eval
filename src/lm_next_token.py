@@ -1,9 +1,9 @@
-import torch
-import torch.nn.functional as F
+import torch  
+import torch.nn.functional as F 
 from model_loader import load_lm_backend, get_model_input_device
 from prompt_template import build_prompt, ALL_PROMPT_TYPES
 
-import numpy as np
+import numpy as np 
 from real_prefix_logic import valid_next_tokens
 
 
@@ -252,6 +252,7 @@ def next_token_distribution_single_token(
     model_name: str = "Qwen/Qwen3-4B",
     load_in_4bit: bool = True,
     prompt_protocol: str = "raw_direct",
+    return_diagnostics: bool = False,
 ):
     """
     Original method.
@@ -266,6 +267,13 @@ def next_token_distribution_single_token(
     )
 
     if len(allowed) == 0:
+        diagnostics = {
+            "candidate_probs_unconditional": {},
+            "valid_candidate_mass": 0.0,
+            "other_vocab_mass": 1.0,
+        }
+        if return_diagnostics:
+            return {}, {}, diagnostics
         return {}, {}
 
     tokenizer, model = load_lm(
@@ -315,9 +323,43 @@ def next_token_distribution_single_token(
         for i, tok in enumerate(allowed)
     }
 
+    full_probs = F.softmax(next_logits, dim=-1)
+
+    candidate_probs_unconditional = {
+        tok: full_probs[allowed_token_ids[tok]].item()
+        for tok in allowed
+    }
+
+    valid_candidate_mass = float(
+        sum(candidate_probs_unconditional.values())
+    )
+
+    if not (-1e-6 <= valid_candidate_mass <= 1.0 + 1e-6):
+        raise ValueError(
+            f"valid_candidate_mass out of range: "
+            f"{valid_candidate_mass}"
+        )
+
+    valid_candidate_mass = min(
+        max(valid_candidate_mass, 0.0),
+        1.0,
+    )
+
+    other_vocab_mass = 1.0 - valid_candidate_mass
+
+    diagnostics = {
+        "candidate_probs_unconditional": candidate_probs_unconditional,
+        "valid_candidate_mass": valid_candidate_mass,
+        "other_vocab_mass": other_vocab_mass,
+    }
+
+    if return_diagnostics:
+        return probs_dict, logprobs_dict, diagnostics
+
     return probs_dict, logprobs_dict
 
 # This is a next token distribution method that scores each valid visible continuation string, even if that visible continuation is represented by more than one tokenizer token. This is useful for models like Mistral that may have multi-token representations for certain visible continuations.
+
 def next_token_distribution_sequence(
     prompt: str,
     prefix: str,
@@ -326,6 +368,7 @@ def next_token_distribution_sequence(
     model_name: str = "Qwen/Qwen3-4B",
     load_in_4bit: bool = True,
     prompt_protocol: str = "raw_direct",
+    return_diagnostics: bool = False,
 ):
     """
     Mistral bridge method.
@@ -344,6 +387,13 @@ def next_token_distribution_sequence(
     )
 
     if len(allowed) == 0:
+        diagnostics = {
+            "candidate_probs_unconditional": {},
+            "valid_candidate_mass": None,
+            "other_vocab_mass": None,
+        }
+        if return_diagnostics:
+            return {}, {}, diagnostics
         return {}, {}
 
     tokenizer, model = load_lm(
@@ -369,7 +419,18 @@ def next_token_distribution_sequence(
             add_special_tokens=add_special_tokens,
         )
 
-    return _normalize_logprobs(candidate_logprobs)
+    probs_dict, logprobs_dict = _normalize_logprobs(candidate_logprobs)
+
+    if return_diagnostics:
+        diagnostics = {
+            "candidate_probs_unconditional": {},
+            "valid_candidate_mass": None,
+            "other_vocab_mass": None,
+        }
+        return probs_dict, logprobs_dict, diagnostics
+
+    return probs_dict, logprobs_dict
+
 
 
 def next_token_distribution(
@@ -381,6 +442,7 @@ def next_token_distribution(
     load_in_4bit: bool = True,
     scoring_method: str = "single_token",
     prompt_protocol: str = "raw_direct",
+    return_diagnostics: bool = False,
 ):
     """
     Public dispatcher.
@@ -399,6 +461,7 @@ def next_token_distribution(
             model_name=model_name,
             load_in_4bit=load_in_4bit,
             prompt_protocol=prompt_protocol,
+            return_diagnostics=return_diagnostics
         )
 
     if scoring_method == "sequence":
@@ -410,6 +473,7 @@ def next_token_distribution(
             model_name=model_name,
             load_in_4bit=load_in_4bit,
             prompt_protocol=prompt_protocol,
+            return_diagnostics=return_diagnostics
         )
 
     if scoring_method == "auto":
@@ -422,6 +486,7 @@ def next_token_distribution(
                 model_name=model_name,
                 load_in_4bit=load_in_4bit,
                 prompt_protocol=prompt_protocol,
+                return_diagnostics=return_diagnostics
             )
         except ValueError as e:
             print("[scoring] single_token failed, falling back to sequence.")
@@ -435,6 +500,7 @@ def next_token_distribution(
                 model_name=model_name,
                 load_in_4bit=load_in_4bit,
                 prompt_protocol=prompt_protocol,
+                return_diagnostics=return_diagnostics
             )
 
     raise ValueError(

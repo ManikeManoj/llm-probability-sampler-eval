@@ -312,10 +312,33 @@ def compare_for_prefix(
         load_in_4bit=load_in_4bit,
         scoring_method=lm_scoring_method,
         prompt_protocol=prompt_protocol,
-)
+        return_diagnostics=True,
 
+    )
 
+    lm_unconditional_dist = ( lm_diagnostics["candidate_probs_unconditional"])
 
+    valid_candidate_mass = (lm_diagnostics["valid_candidate_mass"])
+
+    other_vocab_mass = (lm_diagnostics["other_vocab_mass"])
+
+    if valid_candidate_mass is not None:
+        restricted_sum = sum(lm_dist.values())
+
+        unconditional_sum = sum(lm_unconditional_dist.values())
+
+        if abs(restricted_sum - 1) > 1e-6:
+            raise ValueError(f"Restricted LM distribution does not sum to 1: {restricted_sum}")
+        if abs(unconditional_sum - valid_candidate_mass) > 1e-6:
+            raise ValueError(f"Unconditional LM distribution does not sum to valid candidate mass: {unconditional_sum} vs {valid_candidate_mass}")
+        if abs(valid_candidate_mass + other_vocab_mass - 1) > 1e-6:
+            raise ValueError(f"Valid candidate mass + other vocab mass does not sum to 1")
+        if valid_candidate_mass >0.0:
+            for tok in token_set:
+                reconstructed = (lm_unconditional_dist[tok] / valid_candidate_mass)
+                if abs(reconstructed - lm_dist[tok]) > 1e-6:
+                    raise ValueError(f"Reconstructed LM probability for token {tok} does not match restricted LM probability: {reconstructed} vs {lm_dist[tok]}")
+                
 
     rank_mc = compute_token_ranks(mc_dist, token_set)
     rank_analytic = compute_token_ranks(analytic_dist, token_set)
@@ -406,6 +429,8 @@ def compare_for_prefix(
     print(f"  Truth top2 prob        = {truth_top2_prob:.6f}")
     print(f"  Truth top1-top2        = {truth_top1_minus_top2:.6f}")
     print(f"  Truth max-min          = {truth_max_minus_min:.6f}")
+    print(f"valid candidate mass     = {valid_candidate_mass:.6f}")
+    print(f"other vocab mass         = {other_vocab_mass:.6f}")
     print(f"  Prefix kind            = {prefix_kind}")
     print(f"  Prefix class           = {prefix_class}")    
 
@@ -431,6 +456,9 @@ def compare_for_prefix(
         "icl_seed": icl_seed,
         "prefix": prefix,
         "aligned_rows": aligned_rows,
+        "lm_unconditional_dist": lm_unconditional_dist,
+        "valid_candidate_mass": valid_candidate_mass,
+        "other_vocab_mass": other_vocab_mass,
         "mc_prefix_count": mc_prefix_count,
         "mc_reliable": mc_reliable,
         "tv_mc_lm": tv_mc_lm,
@@ -490,6 +518,9 @@ def export_token_level_csv(results, filepath):
                 "mc_truth",
                 "analytic_truth",
                 "lm_prob",
+                "lm_prob_unconditional",
+                "valid_candidate_mass",
+                "other_vocab_mass",
                 "rank_mc",
                 "rank_analytic",
                 "rank_lm",
@@ -542,6 +573,9 @@ def export_token_level_csv(results, filepath):
                         p_mc,
                         p_analytic,
                         p_lm,
+                        result["lm_unconditional_dist"].get(tok, 0.0),
+                        result["valid_candidate_mass"],
+                        result["other_vocab_mass"],
                         rank_mc,
                         rank_analytic,
                         rank_lm,
@@ -587,6 +621,8 @@ def export_prefix_summary_csv(results, filepath):
                 "prefix_class",
                 "mc_prefix_count",
                 "mc_reliable",
+                "valid_candidate_mass",
+                "other_vocab_mass",
                 "tv_mc_lm",
                 "kl_mc_lm",
                 "tv_analytic_lm",
@@ -634,6 +670,8 @@ def export_prefix_summary_csv(results, filepath):
                     result["prefix_class"],
                     result["mc_prefix_count"],
                     result["mc_reliable"],
+                    result["valid_candidate_mass"],
+                    result["other_vocab_mass"],
                     result["tv_mc_lm"],
                     result["kl_mc_lm"],
                     result["tv_analytic_lm"],
