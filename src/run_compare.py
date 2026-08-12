@@ -33,11 +33,11 @@ def parse_args():
     #prompt and support types
     parser.add_argument("--prompt-type", type=str, default="plain", help="One of: short, plain, formal, "
                              "explanatory_1, explanatory_2, explanatory_3, explanatory_4, " 
-                             "cot, icl, icl_cot")
+                             "cot, icl,icl_random, icl_cot")
     parser.add_argument("--support-mode",type=str,choices=["positive", "bounded", "agnostic"],default=None,help="How to handle distribution support: 'positive' means only positive outputs are valid, 'bounded' means only outputs within [lower, upper] are valid, and 'agnostic' means all outputs are valid. By default, this is inferred from the distribution choice (e.g. 'exponential' -> 'positive', 'beta' -> 'bounded', 'normal' -> 'agnostic').")
     parser.add_argument("--allow-negative",action="store_true",help="Allow '-' as a valid initial token / signed outputs.",)
     parser.add_argument("--force-no-negative",action="store_true",help="Force negative outputs to be disallowed, even if the distribution default allows them.",)
-    parser.add_argument("--icl-n-examples", type=int, default=5,help="Number of in-context examples for icl / icl_cot prompts.")
+    parser.add_argument("--icl-n-examples", type=int, default=5,help="Number of in-context examples for icl/icl_random / icl_cot prompts.")
     parser.add_argument("--icl-seed", type=int, default=0,help="RNG seed used to draw in-context examples. " 
                         "Change this to test sensitivity to example choice.")
     parser.add_argument("--run-id", type=str, default=None,help="Override the auto-generated run ID.")
@@ -89,6 +89,7 @@ if __name__ == "__main__":
             "short":         "sht",
             "cot":           "cot",
             "icl":           "icl",
+            "icl_random":    "iclrnd",
         }
         return replacements.get(pt, pt)
     
@@ -114,7 +115,7 @@ if __name__ == "__main__":
     timestamp = datetime.now().strftime("%m%d_%H%M%S")
 
     icl_tag = ""
-    if args.prompt_type in {"icl", "icl_cot"}:
+    if args.prompt_type in {"icl", "icl_cot", "icl_random"}:
         icl_tag = f"_n{args.icl_n_examples}_s{args.icl_seed}"
 
     protocol_tag = "raw" if args.prompt_protocol == "raw_direct" else "chat"

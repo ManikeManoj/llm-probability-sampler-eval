@@ -15,6 +15,7 @@ ALL_PROMPT_TYPES = [
     "explanatory_4",
     "cot",
     "icl",
+    "icl_random",
     "icl_cot",
 ]
 
@@ -75,6 +76,31 @@ def _icl_examples(
     rng.shuffle(examples)
 
     return [f"{x:.{decimals}f}" for x in examples]
+
+def _icl_random_examples(
+    spec: DistributionSpec,
+    decimals: int,
+    n_examples: int,
+    lower=None,
+    upper=None,
+    seed: int = 0,
+) -> list[str]:
+
+    if n_examples < 1:
+        raise ValueError("n_examples must be at least 1")
+
+    samples = sample_distribution(
+        spec=spec,
+        n_samples=n_examples,
+        lower=lower,
+        upper=upper,
+        seed=seed,
+    )
+
+    return [
+        f"{float(x):.{decimals}f}"
+        for x in samples
+    ]
 
 def build_prompt(
     distribution: str = "normal",
@@ -305,16 +331,38 @@ def build_normal_prompt(
         f"Output only one sampled number with exactly {decimals} decimal places."
     )
 
-    if prompt_type in {"icl", "icl_cot"}:
-        examples = _icl_examples(
-            spec=spec,
-            decimals=decimals,
-            n_examples=icl_n_examples,
-            lower=lower,
+    if prompt_type in {"icl", "icl_cot","icl_random"}:
+
+        if prompt_type == "icl_random":
+            examples = _icl_random_examples(
+                spec=spec,
+                decimals=decimals,
+                n_examples=icl_n_examples,
+                lower=lower,
+                upper=upper,
+                seed=icl_seed,
+            )
+        else:
+            examples = _icl_examples(
+                spec=spec,
+                decimals=decimals,
+                n_examples=icl_n_examples,
+                lower=lower,
             upper=upper,
             seed=icl_seed,
         )
         example_block = "\n".join(examples)
+
+        if prompt_type == "icl_random":
+            return (
+                f"You are sampling from a Normal distribution with mean {mean} "
+                f"and standard deviation {std}{sc}. "
+                f"Here are {icl_n_examples} randomly drawn example values "
+                f"from this distribution:\n"
+                f"{example_block}\n"
+                f"Now produce one new independent sample in the same format "
+                f"(exactly {decimals} decimal places). Output only the number."
+                    )
 
         if prompt_type == "icl":
             return (
@@ -472,16 +520,38 @@ def build_uniform_prompt(
         f"Output only one sampled number with exactly {decimals} decimal places."
     )
 
-    if prompt_type in {"icl", "icl_cot"}:
-        examples = _icl_examples(
-            spec=spec,
-            decimals=decimals,
-            n_examples=icl_n_examples,
-            lower=lower,
+    if prompt_type in {"icl", "icl_cot","icl_random"}:
+
+        if prompt_type == "icl_random":
+            examples = _icl_random_examples(
+                spec=spec,
+                decimals=decimals,
+                n_examples=icl_n_examples,
+                lower=lower,
+                upper=upper,
+                seed=icl_seed,
+            )
+        else:
+            examples = _icl_examples(
+                spec=spec,
+                decimals=decimals,
+                n_examples=icl_n_examples,
+                lower=lower,
             upper=upper,
             seed=icl_seed,
         )
         example_block = "\n".join(examples)
+
+        if prompt_type == "icl_random":
+            return (
+                f"You are sampling from a continuous Uniform distribution "
+                f"on [{low}, {high}]{sc}. "
+                f"Here are {icl_n_examples} randomly drawn example values "
+                f"from this distribution:\n"
+                f"{example_block}\n"
+                f"Now produce one new independent sample in the same format "
+                f"(exactly {decimals} decimal places). Output only the number."
+            )
 
         if prompt_type == "icl":
             return (
@@ -643,16 +713,38 @@ def build_exponential_prompt(
         f"Output only one sampled number with exactly {decimals} decimal places."
     )
 
-    if prompt_type in {"icl", "icl_cot"}:
-        examples = _icl_examples(
-            spec=spec,
-            decimals=decimals,
-            n_examples=icl_n_examples,
-            lower=lower,
-            upper=upper,
-            seed=icl_seed,
-        )
+    if prompt_type in {"icl", "icl_cot", "icl_random"}:
+
+        if prompt_type == "icl_random":
+            examples = _icl_random_examples(
+                spec=spec,
+                decimals=decimals,
+                n_examples=icl_n_examples,
+                lower=lower,
+                upper=upper,
+                seed=icl_seed,
+            )
+        else:
+            examples = _icl_examples(
+                spec=spec,
+                decimals=decimals,
+                n_examples=icl_n_examples,
+                lower=lower,
+                upper=upper,
+                seed=icl_seed,
+            )
         example_block = "\n".join(examples)
+
+        if prompt_type == "icl_random":
+            return (
+                f"You are sampling from an Exponential distribution "
+                f"with rate {rate}{sc}. "
+                f"Here are {icl_n_examples} randomly drawn example values "
+                f"from this distribution:\n"
+                f"{example_block}\n"
+                f"Now produce one new independent sample in the same format "
+                f"(exactly {decimals} decimal places). Output only the number."
+            )
 
         if prompt_type == "icl":
             return (
@@ -837,16 +929,39 @@ def build_beta_prompt(
         f"Output only one sampled number with exactly {decimals} decimal places."
     )
 
-    if prompt_type in {"icl", "icl_cot"}:
-        examples = _icl_examples(
-            spec=spec,
-            decimals=decimals,
-            n_examples=icl_n_examples,
-            lower=lower,
-            upper=upper,
-            seed=icl_seed,
-        )
+    if prompt_type in {"icl", "icl_cot", "icl_random"}:
+
+        if prompt_type == "icl_random":
+            examples = _icl_random_examples(
+                spec=spec,
+                decimals=decimals,
+                n_examples=icl_n_examples,
+                lower=lower,
+                upper=upper,
+                seed=icl_seed,
+            )
+        else:
+
+            examples = _icl_examples(
+                spec=spec,
+                decimals=decimals,
+                n_examples=icl_n_examples,
+                lower=lower,
+                upper=upper,
+                seed=icl_seed,
+            )
         example_block = "\n".join(examples)
+
+        if prompt_type == "icl_random":
+            return (
+                f"You are sampling from a continuous Beta distribution "
+                f"with alpha {alpha} and beta {beta}{sc}. "
+                f"Here are {icl_n_examples} randomly drawn example values "
+                f"from this distribution:\n"
+                f"{example_block}\n"
+                f"Now produce one new independent sample in the same format "
+                f"(exactly {decimals} decimal places). Output only the number."
+            )
 
         if prompt_type == "icl":
             return (
@@ -999,16 +1114,39 @@ def build_laplace_prompt(
         f"Output only one sampled number with exactly {decimals} decimal places."
     )
 
-    if prompt_type in {"icl", "icl_cot"}:
-        examples = _icl_examples(
-            spec=spec,
-            decimals=decimals,
-            n_examples=icl_n_examples,
-            lower=lower,
-            upper=upper,
-            seed=icl_seed,
-        )
+    if prompt_type in {"icl", "icl_cot","icl_random"}:
+
+        if prompt_type == "icl_random":
+            examples = _icl_random_examples(
+                spec=spec,
+                decimals=decimals,
+                n_examples=icl_n_examples,
+                lower=lower,
+                upper=upper,
+                seed=icl_seed,
+            )
+        else:
+        
+            examples = _icl_examples(
+                spec=spec,
+                decimals=decimals,
+                n_examples=icl_n_examples,
+                lower=lower,
+                upper=upper,
+                seed=icl_seed,
+            )
         example_block = "\n".join(examples)
+
+        if prompt_type == "icl_random":
+            return (
+                f"You are sampling from a Laplace distribution "
+                f"with location {loc} and scale {scale}{sc}. "
+                f"Here are {icl_n_examples} randomly drawn example values "
+                f"from this distribution:\n"
+                f"{example_block}\n"
+                f"Now produce one new independent sample in the same format "
+                f"(exactly {decimals} decimal places). Output only the number."
+            )
 
         if prompt_type == "icl":
             return (
