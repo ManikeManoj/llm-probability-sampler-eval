@@ -303,7 +303,7 @@ def compare_for_prefix(
     )
 
 
-    lm_dist, _ = next_token_distribution(
+    lm_dist, _, lm_diagnostics = next_token_distribution(
         prompt=prompt,
         prefix=prefix,
         decimals=decimals,
@@ -322,7 +322,7 @@ def compare_for_prefix(
 
     other_vocab_mass = (lm_diagnostics["other_vocab_mass"])
 
-    if valid_candidate_mass is not None:
+    if valid_candidate_mass is not None and token_set:
         restricted_sum = sum(lm_dist.values())
 
         unconditional_sum = sum(lm_unconditional_dist.values())
@@ -429,8 +429,9 @@ def compare_for_prefix(
     print(f"  Truth top2 prob        = {truth_top2_prob:.6f}")
     print(f"  Truth top1-top2        = {truth_top1_minus_top2:.6f}")
     print(f"  Truth max-min          = {truth_max_minus_min:.6f}")
-    print(f"valid candidate mass     = {valid_candidate_mass:.6f}")
-    print(f"other vocab mass         = {other_vocab_mass:.6f}")
+    if valid_candidate_mass is not None:
+        print(f"valid candidate mass     = {valid_candidate_mass:.6f}")
+        print(f"other vocab mass         = {other_vocab_mass:.6f}")
     print(f"  Prefix kind            = {prefix_kind}")
     print(f"  Prefix class           = {prefix_class}")    
 
@@ -573,7 +574,7 @@ def export_token_level_csv(results, filepath):
                         p_mc,
                         p_analytic,
                         p_lm,
-                        result["lm_unconditional_dist"].get(tok, 0.0),
+                        result["lm_unconditional_dist"].get(tok, None),
                         result["valid_candidate_mass"],
                         result["other_vocab_mass"],
                         rank_mc,
