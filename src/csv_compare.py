@@ -316,11 +316,11 @@ def compare_for_prefix(
 
     )
 
-    lm_unconditional_dist = ( lm_diagnostics["candidate_probs_unconditional"])
+    lm_unconditional_dist =  lm_diagnostics["candidate_probs_unconditional"]
 
-    valid_candidate_mass = (lm_diagnostics["valid_candidate_mass"])
+    valid_candidate_mass = lm_diagnostics["valid_candidate_mass"]
 
-    other_vocab_mass = (lm_diagnostics["other_vocab_mass"])
+    other_vocab_mass = lm_diagnostics["other_vocab_mass"]
 
     if valid_candidate_mass is not None and token_set:
         restricted_sum = sum(lm_dist.values())
