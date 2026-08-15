@@ -443,6 +443,7 @@ for i, manifest_row in enumerate(master_rows, start=1):
     analytic_col = find_column(
         token_df,
         [
+            "analytic_truth",
             "analytic_prob",
             "truth_prob",
             "true_prob",
@@ -476,6 +477,8 @@ for i, manifest_row in enumerate(master_rows, start=1):
     tvd_col = find_column(
         prefix_df,
         [
+            "tv_analytic_lm",
+            "tvd_analytic_lm",
             "tvd",
             "tvd_analytic",
             "total_variation_distance",
