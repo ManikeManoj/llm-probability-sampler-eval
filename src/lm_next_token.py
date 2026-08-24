@@ -18,23 +18,7 @@ def build_lm_context(
     prefix: str,
     prompt_protocol: str = "raw_direct",
 ):
-    """
-    Build the exact text context consumed by the LM.
-
-    raw_direct:
-        Preserves the original thesis protocol exactly:
-            prompt + "\\n" + prefix
-        The tokenizer may add its usual special tokens.
-
-    chat_direct:
-        Treats `prompt` as the user turn, opens the assistant generation turn
-        using the model's own chat template, and then appends `prefix` as the
-        already-generated beginning of the assistant's numeric answer.
-
-        Because apply_chat_template(tokenize=False) already inserts the model's
-        required control/special tokens, the rendered text must later be
-        tokenized with add_special_tokens=False.
-    """
+    
     if prompt_protocol not in PROMPT_PROTOCOLS:
         raise ValueError(
             f"Unknown prompt_protocol={prompt_protocol!r}. "
@@ -59,6 +43,7 @@ def build_lm_context(
             messages,
             tokenize=False,
             add_generation_prompt=True,
+            
             enable_thinking=False,
         )
     except TypeError:
@@ -67,7 +52,7 @@ def build_lm_context(
             tokenize=False,
             add_generation_prompt=True,
         )
-
+# models interact the chat template in different ways, so we cannot assume that the rendered string is non-empty. Check for that here.
     if not isinstance(rendered, str) or len(rendered) == 0:
         raise ValueError(
             "apply_chat_template() did not return a non-empty rendered string."
