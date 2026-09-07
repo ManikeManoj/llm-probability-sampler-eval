@@ -1,0 +1,160 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+==============================================================================================================
+MODEL: Qwen/Qwen3-4B-Instruct-2507
+tokenizer_loader: AutoTokenizer
+tokenizer_class:  Qwen2Tokenizer
+[PASS] raw_direct regression: exact old prompt + newline + prefix behavior
+[PASS] chat_direct render: prefix is appended after assistant generation marker
+
+--- rendered chat ROOT context ---
+'<|im_start|>user\nYou are generating from a Normal distribution with mean 10.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<|im_end|>\n<|im_start|>assistant\n'
+--- rendered chat prefix='10.5' tail ---
+'<|im_start|>user\nYou are generating from a Normal distribution with mean 10.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<|im_end|>\n<|im_start|>assistant\n10.5'
+
+[CHAT CONTEXT TOKEN STABILITY]
+checked=176 passed=176 failed=0
+
+[VERDICT] STRICT PASS
+
+==============================================================================================================
+MODEL: Qwen/Qwen3-14B
+tokenizer_loader: AutoTokenizer
+tokenizer_class:  Qwen2Tokenizer
+[PASS] raw_direct regression: exact old prompt + newline + prefix behavior
+[PASS] chat_direct render: prefix is appended after assistant generation marker
+
+--- rendered chat ROOT context ---
+'<|im_start|>user\nYou are generating from a Normal distribution with mean 10.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n'
+--- rendered chat prefix='10.5' tail ---
+'<|im_start|>user\nYou are generating from a Normal distribution with mean 10.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n10.5'
+
+[CHAT CONTEXT TOKEN STABILITY]
+checked=176 passed=176 failed=0
+
+[VERDICT] STRICT PASS
+
+==============================================================================================================
+MODEL: google/gemma-4-E4B-it
+tokenizer_loader: AutoTokenizer
+tokenizer_class:  GemmaTokenizer
+[PASS] raw_direct regression: exact old prompt + newline + prefix behavior
+[PASS] chat_direct render: prefix is appended after assistant generation marker
+
+--- rendered chat ROOT context ---
+'<bos><|turn>user\nYou are generating from a Normal distribution with mean 10.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<turn|>\n<|turn>model\n'
+--- rendered chat prefix='10.5' tail ---
+'<bos><|turn>user\nYou are generating from a Normal distribution with mean 10.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<turn|>\n<|turn>model\n10.5'
+
+[CHAT CONTEXT TOKEN STABILITY]
+checked=176 passed=176 failed=0
+
+[VERDICT] STRICT PASS
+
+==============================================================================================================
+MODEL: google/gemma-4-12B-it
+tokenizer_loader: AutoTokenizer
+tokenizer_class:  GemmaTokenizer
+[PASS] raw_direct regression: exact old prompt + newline + prefix behavior
+[PASS] chat_direct render: prefix is appended after assistant generation marker
+
+--- rendered chat ROOT context ---
+'<bos><|turn>user\nYou are generating from a Normal distribution with mean 10.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>'
+--- rendered chat prefix='10.5' tail ---
+'<bos><|turn>user\nYou are generating from a Normal distribution with mean 10.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>10.5'
+
+[CHAT CONTEXT TOKEN STABILITY]
+checked=176 passed=176 failed=0
+
+[VERDICT] STRICT PASS
+
+==============================================================================================================
+FINAL SUMMARY
+PASS  Qwen/Qwen3-4B-Instruct-2507
+PASS  Qwen/Qwen3-14B
+PASS  google/gemma-4-E4B-it
+PASS  google/gemma-4-12B-it
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+==============================================================================================================
+FINAL CHAT-PROTOCOL VALIDATION
+==============================================================================================================
+git_commit: 50d4441ef51fbac0c15641ae6051237b59cd9f05
+python: 3.12.13 | packaged by conda-forge | (main, Mar  5 2026, 16:50:00) [GCC 14.3.0]
+transformers: 5.12.1
+
+==============================================================================================================
+PART A — EXISTING STRICT CHAT-PROTOCOL AUDIT
+==============================================================================================================
+
+==============================================================================================================
+PART B — ASSISTANT-PREFILL COMPARISON
+==============================================================================================================
+
+--------------------------------------------------------------------------------------------------------------
+MODEL: Qwen/Qwen3-4B-Instruct-2507
+framework_tail: 'ion with mean 10.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<|im_end|>\n<|im_start|>assistant\n10.5'
+canonical_tail: 'ion with mean 10.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<|im_end|>\n<|im_start|>assistant\n10.5'
+rendered_strings_equal: True
+token_ids_equal: True
+framework_token_count: 53
+canonical_token_count: 53
+status: PASS
+note: Exact token-ID equivalence
+
+--------------------------------------------------------------------------------------------------------------
+MODEL: Qwen/Qwen3-14B
+framework_tail: 'and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n10.5'
+canonical_tail: 'and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n10.5'
+rendered_strings_equal: True
+token_ids_equal: True
+framework_token_count: 57
+canonical_token_count: 57
+status: PASS
+note: Exact token-ID equivalence
+
+--------------------------------------------------------------------------------------------------------------
+MODEL: google/gemma-4-E4B-it
+framework_tail: 'al distribution with mean 10.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<turn|>\n<|turn>model\n10.5'
+canonical_tail: 'al distribution with mean 10.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<turn|>\n<|turn>model\n10.5'
+rendered_strings_equal: True
+token_ids_equal: True
+framework_token_count: 54
+canonical_token_count: 54
+status: PASS
+note: Exact token-ID equivalence
+
+--------------------------------------------------------------------------------------------------------------
+MODEL: google/gemma-4-12B-it
+framework_tail: '.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>10.5'
+canonical_tail: 'al distribution with mean 10.0 and standard deviation 0.5. Return one independent sample as a number with exactly 3 decimal places. Output only the number.<turn|>\n<|turn>model\n10.5'
+rendered_strings_equal: False
+token_ids_equal: False
+framework_token_count: 58
+canonical_token_count: 54
+status: EXPECTED_DIFF
+note: Gemma 12B native generation-start template inserts an empty disabled-thinking channel; continue_final_message does not.
+
+==============================================================================================================
+FINAL SUMMARY
+==============================================================================================================
+Qwen/Qwen3-4B-Instruct-2507
+  strict_protocol_audit: PASS
+  prefill_comparison:    PASS
+  note:                  Exact token-ID equivalence
+Qwen/Qwen3-14B
+  strict_protocol_audit: PASS
+  prefill_comparison:    PASS
+  note:                  Exact token-ID equivalence
+google/gemma-4-E4B-it
+  strict_protocol_audit: PASS
+  prefill_comparison:    PASS
+  note:                  Exact token-ID equivalence
+google/gemma-4-12B-it
+  strict_protocol_audit: PASS
+  prefill_comparison:    EXPECTED_DIFF
+  note:                  Gemma 12B native generation-start template inserts an empty disabled-thinking channel; continue_final_message does not.
+
+FINAL VERDICT: PASS
+FRAMEWORK DECISION: KEEP
+MAIN-GRID RERUN REQUIRED: NO
+Gemma 12B note: native generation-start formatting includes an empty disabled-thinking channel; this is reported as an expected model-specific protocol difference.
