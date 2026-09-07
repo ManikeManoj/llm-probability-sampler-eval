@@ -55,7 +55,7 @@ import tempfile
 from typing import Any, Iterable, Mapping, Sequence
 
 
-SCHEMA_VERSION = "sample-generation-v1"
+SCHEMA_VERSION = "sample-generation-v2"
 SUPPORTED_DISTRIBUTIONS = ("normal", "uniform", "exponential", "beta", "laplace")
 SUPPORTED_PROMPT_TYPES = (
     "short",
@@ -417,6 +417,7 @@ class GeneratedSampleRecord:
     normalized_text: str
     generated_token_ids: tuple[int, ...]
     generated_token_count: int
+    boundary_token_id: int | None
     parsed_value: float | None
     numeric_valid: bool
     canonical_format_valid: bool
@@ -539,22 +540,38 @@ def _as_eos_set(eos_token_id: Any) -> set[int]:
     return {int(token_id) for token_id in eos_token_id}
 
 
-def _special_token_ids(tokenizer: Any, model: Any) -> tuple[Any, int]:
+def _special_token_ids(tokenizer: Any, model: Any) -> tuple[tuple[int, ...], int]:
+    """Return every model-specific completion boundary and one padding ID.
+
+    Instruction tokenizers do not always use the same token for end-of-text
+    and end-of-turn.  In particular, a raw prompt may generate an end-of-text
+    control token even when ``tokenizer.eos_token_id`` points to end-of-turn.
+    Treating all registered special tokens as boundaries prevents text after
+    such a control token from being silently joined to the numeric response.
+    """
+
     generation_config = getattr(model, "generation_config", None)
-    eos = getattr(tokenizer, "eos_token_id", None)
-    if eos is None and generation_config is not None:
-        eos = getattr(generation_config, "eos_token_id", None)
+    model_config = getattr(model, "config", None)
+
+    boundary_ids: set[int] = set()
+    for source in (tokenizer, generation_config, model_config):
+        if source is not None:
+            boundary_ids.update(_as_eos_set(getattr(source, "eos_token_id", None)))
+    for token_id in getattr(tokenizer, "all_special_ids", ()) or ():
+        if token_id is not None and int(token_id) >= 0:
+            boundary_ids.add(int(token_id))
+
     pad = getattr(tokenizer, "pad_token_id", None)
     if pad is None and generation_config is not None:
         pad = getattr(generation_config, "pad_token_id", None)
+    if pad is None and model_config is not None:
+        pad = getattr(model_config, "pad_token_id", None)
     if pad is None:
-        if isinstance(eos, int):
-            pad = eos
-        elif eos:
-            pad = int(eos[0])
+        pad = min(boundary_ids) if boundary_ids else None
     if pad is None:
         raise ValueError("Tokenizer/model exposes neither a pad token nor an EOS token.")
-    return eos, int(pad)
+    boundary_ids.add(int(pad))
+    return tuple(sorted(boundary_ids)), int(pad)
 
 
 def _decode_one_completion(
@@ -563,10 +580,11 @@ def _decode_one_completion(
     *,
     eos_token_id: Any,
     max_new_tokens: int,
-) -> tuple[str, tuple[int, ...], str, bool]:
+) -> tuple[str, tuple[int, ...], int | None, str, bool]:
     ids = [int(token_id) for token_id in generated_ids]
     eos_ids = _as_eos_set(eos_token_id)
     eos_position = next((i for i, token_id in enumerate(ids) if token_id in eos_ids), None)
+    boundary_token_id = None if eos_position is None else ids[eos_position]
     visible_ids = ids if eos_position is None else ids[:eos_position]
     raw_completion = tokenizer.decode(
         visible_ids,
@@ -585,7 +603,7 @@ def _decode_one_completion(
     else:
         reason = "other_stop"
         truncated = False
-    return raw_completion, tuple(visible_ids), reason, truncated
+    return raw_completion, tuple(visible_ids), boundary_token_id, reason, truncated
 
 
 def generate_batch(
@@ -596,7 +614,7 @@ def generate_batch(
     add_special_tokens: bool,
     batch_size: int,
     config: GenerationConfig,
-) -> list[tuple[str, tuple[int, ...], str, bool]]:
+) -> list[tuple[str, tuple[int, ...], int | None, str, bool]]:
     """Draw one decoding batch from repeated copies of the same context."""
 
     import torch
@@ -661,6 +679,7 @@ def make_sample_record(
     sample_index: int,
     raw_completion: str,
     token_ids: tuple[int, ...],
+    boundary_token_id: int | None,
     termination_reason: str,
     truncated: bool,
 ) -> GeneratedSampleRecord:
@@ -692,6 +711,7 @@ def make_sample_record(
         normalized_text=parsed.normalized_text,
         generated_token_ids=token_ids,
         generated_token_count=len(token_ids),
+        boundary_token_id=boundary_token_id,
         parsed_value=parsed.parsed_value,
         numeric_valid=parsed.numeric_valid,
         canonical_format_valid=parsed.canonical_format_valid,
@@ -814,6 +834,8 @@ def _prepare_metadata(
     prompt_hash: str,
     context: str | None,
     backend: str | None,
+    generation_boundary_token_ids: Sequence[int] | None = None,
+    generation_boundary_tokens: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -824,11 +846,22 @@ def _prepare_metadata(
         "prompt_hash": prompt_hash,
         "rendered_context": context,
         "model_backend": backend,
+        "generation_boundary_token_ids": (
+            list(generation_boundary_token_ids)
+            if generation_boundary_token_ids is not None
+            else None
+        ),
+        "generation_boundary_tokens": (
+            list(generation_boundary_tokens)
+            if generation_boundary_tokens is not None
+            else None
+        ),
         "software_versions": _software_versions(),
         "notes": {
             "log_probabilities_collected": False,
             "reason": "Empirical generated-sample frequencies are the downstream estimand.",
             "first_newline_is_response_boundary": True,
+            "special_control_tokens_are_response_boundaries": True,
             "numeric_vocabulary_constraints": False,
         },
     }
@@ -931,6 +964,11 @@ def run_generation(
     context, add_special_tokens = render_generation_context(
         tokenizer, prompt, config.prompt_protocol
     )
+    boundary_token_ids, _ = _special_token_ids(tokenizer, model)
+    boundary_tokens = [
+        str(tokenizer.convert_ids_to_tokens(token_id))
+        for token_id in boundary_token_ids
+    ]
 
     condition_dir = config.condition_dir
     condition_dir.mkdir(parents=True, exist_ok=True)
@@ -941,6 +979,8 @@ def run_generation(
         prompt_hash=prompt_hash,
         context=context,
         backend=loaded.backend,
+        generation_boundary_token_ids=boundary_token_ids,
+        generation_boundary_tokens=boundary_tokens,
     )
     _check_or_write_metadata(metadata_path, metadata)
 
@@ -980,7 +1020,7 @@ def run_generation(
                     batch_size=current_batch,
                     config=config,
                 )
-                for raw, token_ids, reason, truncated in decoded:
+                for raw, token_ids, boundary_token_id, reason, truncated in decoded:
                     index = len(block_records)
                     block_records.append(
                         make_sample_record(
@@ -990,6 +1030,7 @@ def run_generation(
                             sample_index=index,
                             raw_completion=raw,
                             token_ids=token_ids,
+                            boundary_token_id=boundary_token_id,
                             termination_reason=reason,
                             truncated=truncated,
                         )
